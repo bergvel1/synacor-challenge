@@ -16,18 +16,19 @@
 #define FF_FILENAME ("script/fastforward")
 #define MAX_VAL 32767
 
-value_t * regs = NULL;
-Stack * stk = NULL;
-Memory * mem = NULL;
-size_t pc = 0; //program counter
+typedef struct vm_s {
+	value_t * regs;
+	Stack * stk;
+	Memory * mem;
+	size_t pc;
 
-char * stdin_buf = NULL;
-size_t stdin_idx = 1;
-size_t stdin_buf_size = 0;
-size_t stdin_str_len = 0;
-
-char ff_flag = 0;
-FILE * ff_script = NULL;
+	char * stdin_buf;
+	size_t stdin_idx;
+	size_t stdin_buf_size;
+	size_t stdin_str_len;
+	char ff_flag;
+	FILE * ff_script;
+} vm_t;
 
 void endian_check(){
 	volatile uint32_t i=0x01234567;
@@ -37,13 +38,14 @@ void endian_check(){
 }
 
 // do register lookups, if necessary
-value_t eval(value_t v){
-	if(v > MAX_VAL) return regs[Value_get_register_idx(&v)];
+value_t eval(vm_t * vm, value_t v){
+	if(v > MAX_VAL) return vm->regs[Value_get_register_idx(&v)];
 	else return v;
 }
 
-void load_binary(){
-	assert(mem);
+void load_binary(vm_t * vm){
+	assert(vm);
+	assert(vm->mem);
 
 	FILE * fp;
 	fp = fopen(INPUT_FILENAME,"rb");
@@ -51,9 +53,9 @@ void load_binary(){
 
 	while(fread(&buffer,sizeof(value_t),1,fp) > 0){
 		//printf("%" PRIu16 " \n", buffer);
-		cell c = {((uint16_t) Memory_size(mem)),buffer};
+		cell c = {((uint16_t) Memory_size(vm->mem)),buffer};
 
-		Memory_append(mem,&c);
+		Memory_append(vm->mem,&c);
 	}
     	
     fclose(fp);
@@ -61,7 +63,9 @@ void load_binary(){
 
 
 // write VM state to fp (stdout by default)
-void state_dump(FILE * fp){
+void state_dump(vm_t * vm, FILE * fp){
+	assert(vm);
+
 	if(!fp)
 		fp = stdout;
 
@@ -69,49 +73,53 @@ void state_dump(FILE * fp){
 
 	printf("Registers:\n");
 	for(int i = 0; i < NUM_REGS; i++){
-		printf("\tr%d -> %" PRIu16 "\n",i,regs[i]);
+		printf("\tr%d -> %" PRIu16 "\n",i,vm->regs[i]);
 	}
 
-	size_t stk_size = Stack_size(stk);
+	size_t stk_size = Stack_size(vm->stk);
 	printf("\nStack (size %zu):\n",stk_size);
 	Stack * tmp = Stack_create();
 	for(int i = 0; i < stk_size; i++){
-		value_t v = Stack_pop(stk);
+		value_t v = Stack_pop(vm->stk);
 		printf("\ts%d -> %" PRIu16 "\n",i,v);
 		Stack_push(tmp,v);
 	}
 	for(int i = 0; i < stk_size; i++){
 		value_t v = Stack_pop(tmp);
-		Stack_push(stk,v);
+		Stack_push(vm->stk,v);
 	}
 	assert(Stack_size(tmp) == 0);
 	Stack_destroy(tmp);
 
-	printf("\nProgram Counter -> %zu\n",pc);
+	printf("\nProgram Counter -> %zu\n",vm->pc);
 }
 
 // same as above, but also prints memory
-void state_dump_full(FILE * fp){
-	state_dump(fp);
+void state_dump_full(vm_t * vm,FILE * fp){
+	state_dump(vm,fp);
 
 	if(!fp)
 		fp = stdout;
 
 	size_t idx = 0;
-	const cell * c = Memory_get(mem,idx);
+	const cell * c = Memory_get(vm->mem,idx);
 
-	printf("\nMemory (size %zu):\n",Memory_size(mem));
+	printf("\nMemory (size %zu):\n",Memory_size(vm->mem));
 	while(c){
 		printf("\tm%" PRIu16 " -> %" PRIu16 "\n",c->addr,c->value);
-		c = Memory_get(mem,++idx);
+		c = Memory_get(vm->mem,++idx);
 	}
 }
 
-void decompile(){
-	assert(mem);
+void decompile(vm_t * vm){
+	assert(vm);
 
-	size_t tmp = pc;
-	pc = 0;
+	value_t * regs = vm->regs;
+	Stack * stk = vm->stk;
+	Memory * mem = vm->mem;
+
+	size_t tmp = vm->pc;
+	vm->pc = 0;
 
 	//FILE * fp, fp2, fp3;
 	FILE * fp = fopen(DECOMPILE_FILENAME,"w+");
@@ -122,7 +130,7 @@ void decompile(){
 	assert(fp3);
 
 	//size_t idx = 0;
-	const cell * c = Memory_get(mem,pc);
+	const cell * c = Memory_get(mem,vm->pc);
 
 	while(c){
 		value_t inst = c->value;
@@ -135,8 +143,8 @@ void decompile(){
 		}
 		//1: SET REGISTER
 		else if(inst == 1){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"SET ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -146,13 +154,13 @@ void decompile(){
 		}
 		//2: STACK PUSH
 		else if(inst == 2){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"PUSH r%zu",Value_get_register_idx(&(cell_a->value)));
 			else fprintf(fp,"PUSH %" PRIu16 "",(cell_a->value));
 		}
 		//3: STACK POP
 		else if(inst == 3){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"POP ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu",Value_get_register_idx(&(cell_a->value)));
@@ -160,9 +168,9 @@ void decompile(){
 		}
 		//4: EQ OP
 		else if(inst == 4){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"EQ ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -174,9 +182,9 @@ void decompile(){
 		}
 		//5: GT OP
 		else if(inst == 5){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"GT ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -188,7 +196,7 @@ void decompile(){
 		}
 		//6: JUMP
 		else if(inst == 6){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"JUMP ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu",Value_get_register_idx(&(cell_a->value)));
@@ -196,8 +204,8 @@ void decompile(){
 		}
 		//7: JUMP IF TRUE
 		else if(inst == 7){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"TJUMP ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -207,8 +215,8 @@ void decompile(){
 		}
 		//8: JUMP IF FALSE
 		else if(inst == 8){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"FJUMP ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -218,9 +226,9 @@ void decompile(){
 		}
 		//9: ADD
 		else if(inst == 9){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"ADD ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -232,9 +240,9 @@ void decompile(){
 		}
 		//10: MULT
 		else if(inst == 10){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"MULT ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -246,9 +254,9 @@ void decompile(){
 		}
 		//11: MOD
 		else if(inst == 11){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"MOD ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -260,9 +268,9 @@ void decompile(){
 		}
 		//12: AND
 		else if(inst == 12){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"AND ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -274,9 +282,9 @@ void decompile(){
 		}
 		//13: OR
 		else if(inst == 13){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"OR ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -288,8 +296,8 @@ void decompile(){
 		}
 		//14: NOT
 		else if(inst == 14){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"NOT ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -299,10 +307,10 @@ void decompile(){
 		}
 		//15: READ MEM
 		else if(inst == 15){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
-			const cell * read_cell = Memory_get(mem,eval(cell_b->value));
+			const cell * read_cell = Memory_get(mem,eval(vm,cell_b->value));
 
 			fprintf(fp,"RMEM ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -312,8 +320,8 @@ void decompile(){
 		}
 		//16: WRITE MEM
 		else if(inst == 16){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"WMEM ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -323,7 +331,7 @@ void decompile(){
 		}
 		//17: CALL
 		else if(inst == 17){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"CALL ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu",Value_get_register_idx(&(cell_a->value)));
@@ -335,7 +343,7 @@ void decompile(){
 		}
 		//19: OUTPUT
 		else if(inst == 19){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 			value_t to_print = cell_a->value;
 
 			fprintf(fp,"OUT ");
@@ -346,7 +354,7 @@ void decompile(){
 		}
 		//20: INPUT
 		else if(inst == 20){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
 			fprintf(fp,"IN ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu",Value_get_register_idx(&(cell_a->value)));
@@ -367,27 +375,30 @@ void decompile(){
 		}
 
 		fprintf(fp,"\n");
-		c = Memory_get(mem,++pc);
+		c = Memory_get(mem,++(vm->pc));
 	}
 
 	fclose(fp);
 	fclose(fp2);
 	fclose(fp3);
 
-	pc = tmp;
+	vm->pc = tmp;
 }
 
-void execute_with_trace(){
-	assert(mem);
+void execute_with_trace(vm_t * vm){
+	assert(vm);
+
+	value_t * regs = vm->regs;
+	Stack * stk = vm->stk;
+	Memory * mem = vm->mem;
 
 	FILE * fp = fopen(TRACE_FILENAME,"w+");
 	assert(fp);
 
-	const cell * c_ptr = Memory_get(mem,pc);
+	const cell * c_ptr = Memory_get(mem,vm->pc);
 	if(!c_ptr){
 		exit(1);
 	}
-
 
 	while(c_ptr){
 		if(ftell(fp) > MAX_LOG_SIZE){
@@ -406,54 +417,54 @@ void execute_with_trace(){
 		}
 		//1: SET REGISTER
 		else if(inst == 1){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = eval(cell_b->value);
-			fprintf(fp,"SET r%zu %hu",Value_get_register_idx(&(cell_a->value)),eval(cell_b->value));
+			regs[Value_get_register_idx(&(cell_a->value))] = eval(vm,cell_b->value);
+			fprintf(fp,"SET r%zu %hu",Value_get_register_idx(&(cell_a->value)),eval(vm,cell_b->value));
 		}
 		//2: STACK PUSH
 		else if(inst == 2){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
-			Stack_push(stk,eval(cell_a->value));
-			fprintf(fp,"PUSH %" PRIu16 "",eval(cell_a->value));
+			Stack_push(stk,eval(vm,cell_a->value));
+			fprintf(fp,"PUSH %" PRIu16 "",eval(vm,cell_a->value));
 		}
 		//3: STACK POP
 		else if(inst == 3){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
 			regs[Value_get_register_idx(&(cell_a->value))] = Stack_pop(stk);
 			fprintf(fp,"POP r%zu (%hu)",Value_get_register_idx(&(cell_a->value)),regs[Value_get_register_idx(&(cell_a->value))]);
 		}
 		//4: EQ OP
 		else if(inst == 4){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
 			size_t a_idx = Value_get_register_idx(&(cell_a->value));
 
-			if(eval(cell_b->value) == eval(cell_c->value)) regs[a_idx] = 1;
+			if(eval(vm,cell_b->value) == eval(vm,cell_c->value)) regs[a_idx] = 1;
 			else regs[a_idx] = 0;
 			fprintf(fp,"EQ ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
-			else fprintf(fp,"%" PRIu16 " ",eval(cell_a->value));
+			else fprintf(fp,"%" PRIu16 " ",eval(vm,cell_a->value));
 			if(Value_is_reg(&(cell_b->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_b->value)));
-			else fprintf(fp,"%" PRIu16 " ",eval(cell_b->value));
+			else fprintf(fp,"%" PRIu16 " ",eval(vm,cell_b->value));
 			if(Value_is_reg(&(cell_c->value))) fprintf(fp,"r%zu",Value_get_register_idx(&(cell_c->value)));
-			else fprintf(fp,"%" PRIu16 "",eval(cell_c->value));
+			else fprintf(fp,"%" PRIu16 "",eval(vm,cell_c->value));
 
 		}
 		//5: GT OP
 		else if(inst == 5){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
 			size_t a_idx = Value_get_register_idx(&(cell_a->value));
 
-			if(eval(cell_b->value) > eval(cell_c->value)) regs[a_idx] = 1;
+			if(eval(vm,cell_b->value) > eval(vm,cell_c->value)) regs[a_idx] = 1;
 			else regs[a_idx] = 0;
 			fprintf(fp,"GT ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -465,19 +476,19 @@ void execute_with_trace(){
 		}
 		//6: JUMP
 		else if(inst == 6){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
-			pc = eval(cell_a->value)-1;
+			vm->pc = eval(vm,cell_a->value)-1;
 			fprintf(fp,"JUMP ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu",Value_get_register_idx(&(cell_a->value)));
 			else fprintf(fp,"%" PRIu16 "",(cell_a->value));
 		}
 		//7: JUMP IF TRUE
 		else if(inst == 7){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
-			pc = (eval(cell_a->value)) ? (eval(cell_b->value)-1) : pc;
+			vm->pc = (eval(vm,cell_a->value)) ? (eval(vm,cell_b->value)-1) : vm->pc;
 			fprintf(fp,"TJUMP ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
 			else fprintf(fp,"%" PRIu16 " ",(cell_a->value));
@@ -486,11 +497,11 @@ void execute_with_trace(){
 		}
 		//8: JUMP IF FALSE
 		else if(inst == 8){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
 
-			pc = (!eval(cell_a->value)) ? (eval(cell_b->value)-1) : pc;
+			vm->pc = (!eval(vm,cell_a->value)) ? (eval(vm,cell_b->value)-1) : vm->pc;
 			fprintf(fp,"FJUMP ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
 			else fprintf(fp,"%" PRIu16 " ",(cell_a->value));
@@ -499,11 +510,11 @@ void execute_with_trace(){
 		}
 		//9: ADD
 		else if(inst == 9){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = (eval(cell_b->value) + eval(cell_c->value)) % 32768;
+			regs[Value_get_register_idx(&(cell_a->value))] = (eval(vm,cell_b->value) + eval(vm,cell_c->value)) % 32768;
 			fprintf(fp,"ADD ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
 			else fprintf(fp,"%" PRIu16 " ",(cell_a->value));
@@ -514,11 +525,11 @@ void execute_with_trace(){
 		}
 		//10: MULT
 		else if(inst == 10){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = (eval(cell_b->value) * eval(cell_c->value)) % 32768;
+			regs[Value_get_register_idx(&(cell_a->value))] = (eval(vm,cell_b->value) * eval(vm,cell_c->value)) % 32768;
 			fprintf(fp,"MULT ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
 			else fprintf(fp,"%" PRIu16 " ",(cell_a->value));
@@ -529,11 +540,11 @@ void execute_with_trace(){
 		}
 		//11: MOD
 		else if(inst == 11){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = (eval(cell_b->value) % eval(cell_c->value));
+			regs[Value_get_register_idx(&(cell_a->value))] = (eval(vm,cell_b->value) % eval(vm,cell_c->value));
 			fprintf(fp,"MOD ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
 			else fprintf(fp,"%" PRIu16 " ",(cell_a->value));
@@ -544,11 +555,11 @@ void execute_with_trace(){
 		}
 		//12: AND
 		else if(inst == 12){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = (eval(cell_b->value) & eval(cell_c->value));
+			regs[Value_get_register_idx(&(cell_a->value))] = (eval(vm,cell_b->value) & eval(vm,cell_c->value));
 			fprintf(fp,"AND ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
 			else fprintf(fp,"%" PRIu16 " ",(cell_a->value));
@@ -559,11 +570,11 @@ void execute_with_trace(){
 		}
 		//13: OR
 		else if(inst == 13){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = (eval(cell_b->value) | eval(cell_c->value));
+			regs[Value_get_register_idx(&(cell_a->value))] = (eval(vm,cell_b->value) | eval(vm,cell_c->value));
 			fprintf(fp,"OR ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
 			else fprintf(fp,"%" PRIu16 " ",(cell_a->value));
@@ -574,10 +585,10 @@ void execute_with_trace(){
 		}
 		//14: NOT
 		else if(inst == 14){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = Value_bitwise_not(eval(cell_b->value));
+			regs[Value_get_register_idx(&(cell_a->value))] = Value_bitwise_not(eval(vm,cell_b->value));
 			fprintf(fp,"NOT ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
 			else fprintf(fp,"%" PRIu16 " ",(cell_a->value));
@@ -586,10 +597,10 @@ void execute_with_trace(){
 		}
 		//15: READ MEM
 		else if(inst == 15){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
-			const cell * read_cell = Memory_get(mem,eval(cell_b->value));
+			const cell * read_cell = Memory_get(mem,eval(vm,cell_b->value));
 
 			regs[Value_get_register_idx(&(cell_a->value))] = read_cell->value;
 			fprintf(fp,"RMEM ");
@@ -600,12 +611,12 @@ void execute_with_trace(){
 		}
 		//16: WRITE MEM
 		else if(inst == 16){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
-			cell write_cell = {eval(cell_a->value),eval(cell_b->value)};
+			cell write_cell = {eval(vm,cell_a->value),eval(vm,cell_b->value)};
 
-			Memory_set(mem,eval(cell_a->value),&write_cell);
+			Memory_set(mem,eval(vm,cell_a->value),&write_cell);
 			fprintf(fp,"WMEM ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu ",Value_get_register_idx(&(cell_a->value)));
 			else fprintf(fp,"%" PRIu16 " ",(cell_a->value));
@@ -614,12 +625,12 @@ void execute_with_trace(){
 		}
 		//17: CALL
 		else if(inst == 17){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
-			//printf("call %" PRIu16 " %" PRIu16 " %" PRIu16 "\n",cell_a->addr,cell_a->value,eval(cell_a->value));
-			Stack_push(stk,eval(cell_b->addr));
-			pc = eval(cell_a->value) - 1;
+			//printf("call %" PRIu16 " %" PRIu16 " %" PRIu16 "\n",cell_a->addr,cell_a->value,eval(vm,cell_a->value));
+			Stack_push(stk,eval(vm,cell_b->addr));
+			vm->pc = eval(vm,cell_a->value) - 1;
 			fprintf(fp,"CALL ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu",Value_get_register_idx(&(cell_a->value)));
 			else fprintf(fp,"%" PRIu16 "",(cell_a->value));
@@ -628,14 +639,14 @@ void execute_with_trace(){
 		else if(inst == 18){
 			value_t ret_addr = Stack_pop(stk);
 
-			pc = ret_addr - 1;
+			vm->pc = ret_addr - 1;
 			fprintf(fp,"RET");
 		}
 		//19: OUTPUT
 		else if(inst == 19){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
-			value_t to_print = eval(cell_a->value);
+			value_t to_print = eval(vm,cell_a->value);
 			printf("%c%c",((char*)&to_print)[0],((char*)&to_print)[1]);
 			fprintf(fp, "OUT %c%c",((char*)&to_print)[0],((char*)&to_print)[1]);
 			//fprintf(fp,"OUT ");
@@ -644,60 +655,59 @@ void execute_with_trace(){
 		}
 		//20: INPUT
 		else if(inst == 20){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
-			if(!(stdin_idx < stdin_str_len)){
-				if(stdin_buf){
-					free(stdin_buf);
-					stdin_buf = NULL;
+			if(!(vm->stdin_idx < vm->stdin_str_len)){
+				if(vm->stdin_buf){
+					free(vm->stdin_buf);
+					vm->stdin_buf = NULL;
 				}
-				if(ff_flag){
-					assert(ff_script);
-					stdin_str_len = getline(&stdin_buf,&stdin_buf_size,ff_script);
-					if(stdin_str_len == -1){ // end of file
-						ff_flag = 0;
-						if(stdin_buf){
-							free(stdin_buf);
-							stdin_buf = NULL;
+				if(vm->ff_flag){
+					assert(vm->ff_script);
+					vm->stdin_str_len = getline(&vm->stdin_buf,&vm->stdin_buf_size,vm->ff_script);
+					if(vm->stdin_str_len == -1){ // end of file
+						vm->ff_flag = 0;
+						if(vm->stdin_buf){
+							free(vm->stdin_buf);
+							vm->stdin_buf = NULL;
 						}
-						fclose(ff_script);
-						ff_script = NULL;
+						fclose(vm->ff_script);
+						vm->ff_script = NULL;
 					}
 				}
-				if(!ff_flag)
-					stdin_str_len = getline(&stdin_buf,&stdin_buf_size,stdin);
-				stdin_idx = 0;
-				//stdin_buf[stdin_str_len] = '\0';
+				if(!vm->ff_flag)
+					vm->stdin_str_len = getline(&vm->stdin_buf,&vm->stdin_buf_size,stdin);
+				vm->stdin_idx = 0;
 
-				//printf("Read %zu bytes\n",stdin_str_len);
+				//printf("Read %zu bytes\n",vm->stdin_str_len);
 			}
-			if(strcmp(stdin_buf,"dump\n") == 0){
-				state_dump(NULL);
+			if(strcmp(vm->stdin_buf,"dump\n") == 0){
+				state_dump(vm,NULL);
 			}
-			if(strcmp(stdin_buf,"fdump\n") == 0){
-				state_dump_full(NULL);
+			if(strcmp(vm->stdin_buf,"fdump\n") == 0){
+				state_dump_full(vm,NULL);
 			}
-			if((strcmp(stdin_buf,"ff\n") == 0) || (strcmp(stdin_buf,"fastforward\n") == 0)){
-				ff_script = fopen(FF_FILENAME,"r");
-				assert(ff_script);
-				ff_flag = 1;
+			if((strcmp(vm->stdin_buf,"ff\n") == 0) || (strcmp(vm->stdin_buf,"fastforward\n") == 0)){
+				vm->ff_script = fopen(FF_FILENAME,"r");
+				assert(vm->ff_script);
+				vm->ff_flag = 1;
 			}
-			if((strcmp(stdin_buf,"q\n") == 0) || (strcmp(stdin_buf,"quit\n") == 0) || (strcmp(stdin_buf,"exit\n") == 0)){
+			if((strcmp(vm->stdin_buf,"q\n") == 0) || (strcmp(vm->stdin_buf,"quit\n") == 0) || (strcmp(vm->stdin_buf,"exit\n") == 0)){
 				fprintf(fp,"USER_EXIT\n");
 				fclose(fp);
 				return;
 			}
-			if(stdin_buf[0] == '_'){ 
-				if(strcmp(strtok(stdin_buf," "),"_setreg") == 0){
+			if(vm->stdin_buf[0] == '_'){ 
+				if(strcmp(strtok(vm->stdin_buf," "),"_setreg") == 0){
 					size_t reg_id = atoi(strtok(NULL," "));
 					value_t val = (value_t) atoi(strtok(NULL,"\n"));
 					regs[reg_id] = val;
-					stdin_idx = stdin_str_len; // trigger new read next time around
+					vm->stdin_idx = vm->stdin_str_len; // trigger new read next time around
 
 					//decompile();
 				}
 			}
-			else regs[Value_get_register_idx(&(cell_a->value))] = (value_t) stdin_buf[stdin_idx++];
+			else regs[Value_get_register_idx(&(cell_a->value))] = (value_t) vm->stdin_buf[vm->stdin_idx++];
 
 			fprintf(fp,"IN ");
 			if(Value_is_reg(&(cell_a->value))) fprintf(fp,"r%zu",Value_get_register_idx(&(cell_a->value)));
@@ -713,7 +723,7 @@ void execute_with_trace(){
 		}
 
 		fprintf(fp,"\n");
-		c_ptr = Memory_get(mem,++pc);
+		c_ptr = Memory_get(mem,++(vm->pc));
 	}
 
 	fclose(fp);
@@ -721,32 +731,51 @@ void execute_with_trace(){
 	printf("\n");
 }
 
-void init_vm(){
-	assert(!regs);
-	assert(!stk);
+vm_t * init_vm(){
+	vm_t * vm = malloc(sizeof(vm_t));
 
-	regs = calloc(NUM_REGS,sizeof(value_t));
-	stk = Stack_create();
-	mem = Memory_create();
-	//stdin_buf = malloc(INPUT_BUFFER_SIZE);
-	load_binary();
+	vm->regs = calloc(NUM_REGS,sizeof(value_t));
+	vm->stk = Stack_create();
+	vm->mem = Memory_create();
+	vm->pc = 0;
+
+	vm->stdin_buf = NULL;
+	vm->stdin_idx = 1;
+	vm->stdin_buf_size = 0;
+	vm->stdin_str_len = 0;
+
+	vm->ff_flag = 0;
+	vm->ff_script = NULL;
+
+	load_binary(vm);
+
+	return vm;
 }
 
-void shutdown_vm(){
-	assert(regs);
-	assert(stk);
+void shutdown_vm(vm_t * vm){
+	assert(vm);
+	
+	if(vm->regs) free(vm->regs);
+	if(vm->stk) Stack_destroy(vm->stk);
+	Memory_destroy(vm->mem);
+	if(vm->stdin_buf) free(vm->stdin_buf);
+	if(vm->ff_script) fclose(vm->ff_script);
 
-	free(regs);
-	Stack_destroy(stk);
-	Memory_destroy(mem);
-	if(stdin_buf) free(stdin_buf);
+	free(vm);
 }
 
 
-void execute(){
-	assert(mem);
+void execute(vm_t * vm){
+	assert(vm);
 
-	const cell * c_ptr = Memory_get(mem,pc);
+	// these can be abbreviated, since we do not expect the pointer locations to change during execution
+	// this cannot be so easily done for VM struct members such as the program counter, since we will have
+	// separate values for the PC in this function and in the VM struct
+	value_t * regs = vm->regs;
+	Stack * stk = vm->stk;
+	Memory * mem = vm->mem;
+
+	const cell * c_ptr = Memory_get(mem,vm->pc);
 	if(!c_ptr){
 		exit(1);
 	}
@@ -761,208 +790,207 @@ void execute(){
 		}
 		//1: SET REGISTER
 		else if(inst == 1){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = eval(cell_b->value);
+			regs[Value_get_register_idx(&(cell_a->value))] = eval(vm,cell_b->value);
 		}
 		//2: STACK PUSH
 		else if(inst == 2){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
-			Stack_push(stk,eval(cell_a->value));
+			Stack_push(stk,eval(vm,cell_a->value));
 		}
 		//3: STACK POP
 		else if(inst == 3){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
 			regs[Value_get_register_idx(&(cell_a->value))] = Stack_pop(stk);
 		}
 		//4: EQ OP
 		else if(inst == 4){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
 			size_t a_idx = Value_get_register_idx(&(cell_a->value));
 
-			if(eval(cell_b->value) == eval(cell_c->value)) regs[a_idx] = 1;
+			if(eval(vm,cell_b->value) == eval(vm,cell_c->value)) regs[a_idx] = 1;
 			else regs[a_idx] = 0;
 		}
 		//5: GT OP
 		else if(inst == 5){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
 			size_t a_idx = Value_get_register_idx(&(cell_a->value));
 
-			if(eval(cell_b->value) > eval(cell_c->value)) regs[a_idx] = 1;
+			if(eval(vm,cell_b->value) > eval(vm,cell_c->value)) regs[a_idx] = 1;
 			else regs[a_idx] = 0;
 		}
 		//6: JUMP
 		else if(inst == 6){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
-			pc = eval(cell_a->value)-1;
+			vm->pc = eval(vm,cell_a->value)-1;
 		}
 		//7: JUMP IF TRUE
 		else if(inst == 7){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
 
-			pc = (eval(cell_a->value)) ? (eval(cell_b->value)-1) : pc;
+			vm->pc = (eval(vm,cell_a->value)) ? (eval(vm,cell_b->value)-1) : vm->pc;
 		}
 		//8: JUMP IF FALSE
 		else if(inst == 8){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
 
-			pc = (!eval(cell_a->value)) ? (eval(cell_b->value)-1) : pc;
+			vm->pc = (!eval(vm,cell_a->value)) ? (eval(vm,cell_b->value)-1) : vm->pc;
 		}
 		//9: ADD
 		else if(inst == 9){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = (eval(cell_b->value) + eval(cell_c->value)) % 32768;
+			regs[Value_get_register_idx(&(cell_a->value))] = (eval(vm,cell_b->value) + eval(vm,cell_c->value)) % 32768;
 		}
 		//10: MULT
 		else if(inst == 10){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = (eval(cell_b->value) * eval(cell_c->value)) % 32768;
+			regs[Value_get_register_idx(&(cell_a->value))] = (eval(vm,cell_b->value) * eval(vm,cell_c->value)) % 32768;
 		}
 		//11: MOD
 		else if(inst == 11){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = (eval(cell_b->value) % eval(cell_c->value));
+			regs[Value_get_register_idx(&(cell_a->value))] = (eval(vm,cell_b->value) % eval(vm,cell_c->value));
 		}
 		//12: AND
 		else if(inst == 12){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = (eval(cell_b->value) & eval(cell_c->value));
+			regs[Value_get_register_idx(&(cell_a->value))] = (eval(vm,cell_b->value) & eval(vm,cell_c->value));
 		}
 		//13: OR
 		else if(inst == 13){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
-			const cell * cell_c = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
+			const cell * cell_c = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = (eval(cell_b->value) | eval(cell_c->value));
+			regs[Value_get_register_idx(&(cell_a->value))] = (eval(vm,cell_b->value) | eval(vm,cell_c->value));
 		}
 		//14: NOT
 		else if(inst == 14){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
-			regs[Value_get_register_idx(&(cell_a->value))] = Value_bitwise_not(eval(cell_b->value));
+			regs[Value_get_register_idx(&(cell_a->value))] = Value_bitwise_not(eval(vm,cell_b->value));
 		}
 		//15: READ MEM
 		else if(inst == 15){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
-			const cell * read_cell = Memory_get(mem,eval(cell_b->value));
+			const cell * read_cell = Memory_get(mem,eval(vm,cell_b->value));
 
 			regs[Value_get_register_idx(&(cell_a->value))] = read_cell->value;
 		}
 		//16: WRITE MEM
 		else if(inst == 16){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
-			cell write_cell = {eval(cell_a->value),eval(cell_b->value)};
+			cell write_cell = {eval(vm,cell_a->value),eval(vm,cell_b->value)};
 
-			Memory_set(mem,eval(cell_a->value),&write_cell);
+			Memory_set(mem,eval(vm,cell_a->value),&write_cell);
 		}
 		//17: CALL
 		else if(inst == 17){
-			const cell * cell_a = Memory_get(mem,++pc);
-			const cell * cell_b = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
+			const cell * cell_b = Memory_get(mem,++(vm->pc));
 
-			//printf("call %" PRIu16 " %" PRIu16 " %" PRIu16 "\n",cell_a->addr,cell_a->value,eval(cell_a->value));
-			Stack_push(stk,eval(cell_b->addr));
-			pc = eval(cell_a->value) - 1;
+			//printf("call %" PRIu16 " %" PRIu16 " %" PRIu16 "\n",cell_a->addr,cell_a->value,eval(vm,cell_a->value));
+			Stack_push(stk,eval(vm,cell_b->addr));
+			vm->pc = eval(vm,cell_a->value) - 1;
 		}
 		//18: RET
 		else if(inst == 18){
 			value_t ret_addr = Stack_pop(stk);
 
-			pc = ret_addr - 1;
+			vm->pc = ret_addr - 1;
 		}
 		//19: OUTPUT
 		else if(inst == 19){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
-			value_t to_print = eval(cell_a->value);
+			value_t to_print = eval(vm,cell_a->value);
 			printf("%c%c",((char*)&to_print)[0],((char*)&to_print)[1]);
 		}
 		//20: INPUT
 		else if(inst == 20){
-			const cell * cell_a = Memory_get(mem,++pc);
+			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
-			if(!(stdin_idx < stdin_str_len)){
-				if(stdin_buf){
-					free(stdin_buf);
-					stdin_buf = NULL;
+			if(!(vm->stdin_idx < vm->stdin_str_len)){
+				if(vm->stdin_buf){
+					free(vm->stdin_buf);
+					vm->stdin_buf = NULL;
 				}
-				if(ff_flag){
-					assert(ff_script);
-					stdin_str_len = getline(&stdin_buf,&stdin_buf_size,ff_script);
-					if(stdin_str_len == -1){ // end of file
-						ff_flag = 0;
-						if(stdin_buf){
-							free(stdin_buf);
-							stdin_buf = NULL;
+				if(vm->ff_flag){
+					assert(vm->ff_script);
+					vm->stdin_str_len = getline(&vm->stdin_buf,&vm->stdin_buf_size,vm->ff_script);
+					if(vm->stdin_str_len == -1){ // end of file
+						vm->ff_flag = 0;
+						if(vm->stdin_buf){
+							free(vm->stdin_buf);
+							vm->stdin_buf = NULL;
 						}
-						fclose(ff_script);
-						ff_script = NULL;
+						fclose(vm->ff_script);
+						vm->ff_script = NULL;
 					}
 				}
-				if(!ff_flag)
-					stdin_str_len = getline(&stdin_buf,&stdin_buf_size,stdin);
-				stdin_idx = 0;
-				//stdin_buf[stdin_str_len] = '\0';
+				if(!vm->ff_flag)
+					vm->stdin_str_len = getline(&vm->stdin_buf,&vm->stdin_buf_size,stdin);
+				vm->stdin_idx = 0;
 
-				//printf("Read %zu bytes\n",stdin_str_len);
+				//printf("Read %zu bytes\n",vm->stdin_str_len);
 			}
-			if(strcmp(stdin_buf,"dump\n") == 0){
-				state_dump(NULL);
+			if(strcmp(vm->stdin_buf,"dump\n") == 0){
+				state_dump(vm,NULL);
 			}
-			if(strcmp(stdin_buf,"fdump\n") == 0){
-				state_dump_full(NULL);
+			if(strcmp(vm->stdin_buf,"fdump\n") == 0){
+				state_dump_full(vm,NULL);
 			}
-			if((strcmp(stdin_buf,"ff\n") == 0) || (strcmp(stdin_buf,"fastforward\n") == 0)){
-				ff_script = fopen("fastforward","r");
-				assert(ff_script);
-				ff_flag = 1;
+			if((strcmp(vm->stdin_buf,"ff\n") == 0) || (strcmp(vm->stdin_buf,"fastforward\n") == 0)){
+				vm->ff_script = fopen("fastforward","r");
+				assert(vm->ff_script);
+				vm->ff_flag = 1;
 			}
-			if((strcmp(stdin_buf,"q\n") == 0) || (strcmp(stdin_buf,"quit\n") == 0) || (strcmp(stdin_buf,"exit\n") == 0)){
+			if((strcmp(vm->stdin_buf,"q\n") == 0) || (strcmp(vm->stdin_buf,"quit\n") == 0) || (strcmp(vm->stdin_buf,"exit\n") == 0)){
 				return;
 			}
-			if(stdin_buf[0] == '_'){ 
-				if(strcmp(strtok(stdin_buf," "),"_setreg") == 0){
+			if(vm->stdin_buf[0] == '_'){ 
+				if(strcmp(strtok(vm->stdin_buf," "),"_setreg") == 0){
 					size_t reg_id = atoi(strtok(NULL," "));
 					value_t val = (value_t) atoi(strtok(NULL,"\n"));
 					regs[reg_id] = val;
-					stdin_idx = stdin_str_len; // trigger new read next time around
+					vm->stdin_idx = vm->stdin_str_len; // trigger new read next time around
 
 					//decompile();
 				}
 			}
-			else regs[Value_get_register_idx(&(cell_a->value))] = (value_t) stdin_buf[stdin_idx++];
+			else regs[Value_get_register_idx(&(cell_a->value))] = (value_t) vm->stdin_buf[vm->stdin_idx++];
 		}
 		//21: NO-OP
 		else if(inst == 21){
@@ -970,7 +998,7 @@ void execute(){
 		}
 
 
-		c_ptr = Memory_get(mem,++pc);
+		c_ptr = Memory_get(mem,++(vm->pc));
 	}
 	
 	printf("\n");
@@ -979,12 +1007,12 @@ void execute(){
 
 
 int main(){
-	init_vm();
+	vm_t * vm = init_vm();
 
-	//execute();
-	//decompile();
-	execute_with_trace();
+	//execute(vm);
+	//decompile(vm);
+	execute_with_trace(vm);
 
-	shutdown_vm();
+	shutdown_vm(vm);
 	return 0;
 }
