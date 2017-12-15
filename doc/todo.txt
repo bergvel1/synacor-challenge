@@ -1,0 +1,9 @@
+TODO
+
+
+make VM struct
+	- contains regs, mem, stack, PC
+
+make "inst.c"
+	- contains helper functions for each opcode
+		- possibly with a flag for executing vs. logging
