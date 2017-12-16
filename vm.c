@@ -24,7 +24,7 @@ void load_binary(vm_t * vm){
 	value_t buffer;
 
 	while(fread(&buffer,sizeof(value_t),1,fp) > 0){
-		//printf("%" PRIu16 " \n", buffer);
+		//fprintf(vm->out_fp,"%" PRIu16 " \n", buffer);
 		cell c = {((uint16_t) Memory_size(vm->mem)),buffer};
 
 		Memory_append(vm->mem,&c);
@@ -35,25 +35,22 @@ void load_binary(vm_t * vm){
 
 
 // write VM state to fp (stdout by default)
-void state_dump(vm_t * vm, FILE * fp){
+void state_dump(vm_t * vm){
 	assert(vm);
 
-	if(!fp)
-		fp = stdout;
+	fprintf(vm->out_fp,"Current VM State: \n----------\n");
 
-	printf("Current VM State: \n----------\n");
-
-	printf("Registers:\n");
+	fprintf(vm->out_fp,"Registers:\n");
 	for(int i = 0; i < NUM_REGS; i++){
-		printf("\tr%d -> %" PRIu16 "\n",i,vm->regs[i]);
+		fprintf(vm->out_fp,"\tr%d -> %" PRIu16 "\n",i,vm->regs[i]);
 	}
 
 	size_t stk_size = Stack_size(vm->stk);
-	printf("\nStack (size %zu):\n",stk_size);
+	fprintf(vm->out_fp,"\nStack (size %zu):\n",stk_size);
 	Stack * tmp = Stack_create();
 	for(int i = 0; i < stk_size; i++){
 		value_t v = Stack_pop(vm->stk);
-		printf("\ts%d -> %" PRIu16 "\n",i,v);
+		fprintf(vm->out_fp,"\ts%d -> %" PRIu16 "\n",i,v);
 		Stack_push(tmp,v);
 	}
 	for(int i = 0; i < stk_size; i++){
@@ -63,22 +60,18 @@ void state_dump(vm_t * vm, FILE * fp){
 	assert(Stack_size(tmp) == 0);
 	Stack_destroy(tmp);
 
-	printf("\nProgram Counter -> %zu\n",vm->pc);
+	fprintf(vm->out_fp,"\nProgram Counter -> %zu\n",vm->pc);
 }
 
 // same as above, but also prints memory
-void state_dump_full(vm_t * vm,FILE * fp){
-	state_dump(vm,fp);
-
-	if(!fp)
-		fp = stdout;
-
+void state_dump_full(vm_t * vm){
+	state_dump(vm);
 	size_t idx = 0;
 	const cell * c = Memory_get(vm->mem,idx);
 
-	printf("\nMemory (size %zu):\n",Memory_size(vm->mem));
+	fprintf(vm->out_fp,"\nMemory (size %zu):\n",Memory_size(vm->mem));
 	while(c){
-		printf("\tm%" PRIu16 " -> %" PRIu16 "\n",c->addr,c->value);
+		fprintf(vm->out_fp,"\tm%" PRIu16 " -> %" PRIu16 "\n",c->addr,c->value);
 		c = Memory_get(vm->mem,++idx);
 	}
 }
@@ -99,6 +92,12 @@ vm_t * init_vm(){
 
 	vm->ff_flag = 0;
 	vm->ff_script = NULL;
+
+	vm->out_fd = -1;
+	vm->in_fd = -1;
+
+	vm->out_fp = stdout;
+	vm->in_fp = stdin;
 
 	load_binary(vm);
 
@@ -122,7 +121,7 @@ int main(int argc, char* argv[]){
 	vm_t * vm = init_vm();
 
 	if((argc > 1) && (strcmp(argv[1],"-d") == 0))
-		exec_debug(vm);
+		debugger(vm);
 
 	else execute(vm,LOG_TRACE);
 

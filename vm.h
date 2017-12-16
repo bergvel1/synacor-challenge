@@ -23,11 +23,17 @@ typedef struct vm_s {
 	size_t stdin_str_len;
 	char ff_flag;
 	FILE * ff_script;
+
+	int out_fd;
+	int in_fd;
+	
+	FILE * out_fp;
+	FILE * in_fp;
 } vm_t;
 
-void state_dump(vm_t * vm, FILE * fp);
+void state_dump(vm_t * vm);
 
-void state_dump_full(vm_t * vm,FILE * fp);
+void state_dump_full(vm_t * vm);
 
 value_t eval(vm_t * vm, value_t v);
 

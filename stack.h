@@ -21,6 +21,8 @@ void Stack_push(Stack * stk, value_t val);
 
 value_t Stack_pop(Stack * stk);
 
+value_t Stack_peek(Stack * stk, int idx);
+
 void Stack_destroy(Stack * stk);
 
 

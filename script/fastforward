@@ -47,6 +47,3 @@ use concave coin
 use corroded coin
 north
 take teleporter
-_setreg 7 1
-tele_hack
-use teleporter

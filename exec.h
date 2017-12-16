@@ -4,7 +4,8 @@
 #define NO_LOG 0
 #define LOG_TRACE 1
 
-void execute_with_trace(vm_t * vm);
+void decompile(vm_t * vm);
 void execute(vm_t * vm, int log_flag);
+int execute_debug(vm_t * vm, FILE * breakpoint_fp);
 
 #endif /* __DBERGV_EXEC__ */

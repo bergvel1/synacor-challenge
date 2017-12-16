@@ -42,6 +42,24 @@ value_t Stack_pop(Stack * stk){
 	return ret;
 }
 
+value_t Stack_peek(Stack * stk, int idx){
+	assert(stk);
+	assert(stk->num_elements > idx);
+
+	int curr_idx = 0;
+	node_t * itr = stk->head;
+
+	while(itr){
+		if(curr_idx == idx)
+			return itr->val;
+
+		itr = itr->next;
+		curr_idx++;
+	}
+
+	return -1; // should not be reached
+}
+
 void Stack_destroy(Stack * stk){
 	assert(stk);
 
