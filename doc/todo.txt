@@ -1,6 +1,8 @@
 TODO
 
-- write debugger with ncurses GUI to step through code
+- improve GUI
+	- figure out efficient way to display PC and nearby instructions
+	- implement breakpoint and step/continue debug system
 
 - Figure out teleporter check algorithm
 	- idea: overwrite inefficient check loop so that it runs faster

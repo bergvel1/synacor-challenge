@@ -286,7 +286,7 @@ void decompile(vm_t * vm){
 	vm->pc = tmp;
 }
 
-const cell * exec_step(vm_t * vm, FILE * fp, const cell * c_ptr){
+const cell * exec_step(vm_t * vm, FILE * fp, const cell * c_ptr, int * breakflag){
 	// these can be abbreviated, since we do not expect the pointer locations to change during execution
 	// this cannot be so easily done for VM struct members such as the program counter, since we will have
 	// separate values for the PC in this function and in the VM struct
@@ -615,6 +615,7 @@ const cell * exec_step(vm_t * vm, FILE * fp, const cell * c_ptr){
 							break; // end of line
 					}
 				}
+				if(breakflag) *breakflag = 1;
 			}
 			vm->stdin_idx = 0;
 
@@ -682,9 +683,10 @@ const cell * exec_step(vm_t * vm, FILE * fp, const cell * c_ptr){
 	return c_ptr_ret;
 }
 
-int execute_debug(vm_t * vm, FILE * breakpoint_fp){
+void execute_debug(vm_t * vm, FILE * breakpoint_fp, int * breakflag){
 	assert(vm);
 	assert(breakpoint_fp);
+	assert(breakflag);
 
 	char * line = NULL;
     size_t len = 0;
@@ -698,7 +700,7 @@ int execute_debug(vm_t * vm, FILE * breakpoint_fp){
 			breakpoint_count++;
 		}
 	}
-	int * breakpoints = malloc(breakpoint_count*sizeof(int));
+	int * breakpoints = malloc(breakpoint_count*sizeof(int)); // FIX THIS! (currently being malloc'd lots of times)
 	int curr_idx = 0;
 	fseek(breakpoint_fp, 0, SEEK_SET);
 
@@ -719,13 +721,19 @@ int execute_debug(vm_t * vm, FILE * breakpoint_fp){
 
 	while(inst_ptr){
 		for(int i = 0; i < breakpoint_count; i++){
-			if(inst_ptr->addr == ((value_t) breakpoints[i])) return 1;
+			if(inst_ptr->addr == ((value_t) breakpoints[i])){
+				*breakflag = (*breakflag) ? 0 : 1;
+			}
 		}
+		if(*breakflag) break;
 
-		inst_ptr = exec_step(vm,NULL,inst_ptr);
+		inst_ptr = exec_step(vm,NULL,inst_ptr,breakflag);
+		if(!inst_ptr) *breakflag = -1;
 	}
 
-	return 0;
+	free(breakpoints);
+
+	return;
 }
 
 void execute(vm_t * vm, int log_flag){
@@ -743,7 +751,7 @@ void execute(vm_t * vm, int log_flag){
 	}
 
 	while(inst_ptr){
-		inst_ptr = exec_step(vm,fp,inst_ptr);
+		inst_ptr = exec_step(vm,fp,inst_ptr,NULL);
 	}
 	if(fp) fclose(fp);
 

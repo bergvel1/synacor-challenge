@@ -116,23 +116,29 @@ int debugger(vm_t * vm_in){
         vm->in_fd = CHILD_READ;
 
         FILE * breakpoints_fp = fopen(BREAKPOINTS_FILENAME,"r");
+        int breakflag = 0;
 
-        while(execute_debug(vm,breakpoints_fp) == 1){
-            //werase(reg_win);
-            for(int i = 0; i < NUM_REGS; i++){
-                mvwprintw(reg_win, 4+(2*i), 4, "r%d -> %" PRIu16 "",i,vm->regs[i]);
+        while(breakflag >= 0){
+            execute_debug(vm,breakpoints_fp,&breakflag);
+            if(breakflag == 1){
+                //werase(reg_win);
+                for(int i = 0; i < NUM_REGS; i++){
+                    mvwprintw(reg_win, 4+(2*i), 4, "r%d -> %" PRIu16 "",i,vm->regs[i]);
+                }
+                for(int i = 0; i < Stack_size(vm->stk); i++){
+                    mvwprintw(stk_win, 4+i, 4, "stk%d -> %" PRIu16 "",i,Stack_peek(vm->stk,i));
+                }
+
+                mvwprintw(pc_win, 4, 4, "-> %s","test");
+
+                wrefresh(reg_win);
+                wrefresh(stk_win);
+                wrefresh(pc_win);
+                wrefresh(out_win);
+                //sleep(1);
+                breakflag = 0;
             }
-            for(int i = 0; i < Stack_size(vm->stk); i++){
-                mvwprintw(stk_win, 4+i, 4, "stk%d -> %" PRIu16 "",i,Stack_peek(vm->stk,i));
-            }
-
-            mvwprintw(pc_win, 4, 4, "-> %s","test");
-
-            wrefresh(reg_win);
-            wrefresh(stk_win);
-            wrefresh(pc_win);
-            wrefresh(out_win);
-            sleep(1);
+            
         }
 
         close(CHILD_WRITE);
