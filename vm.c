@@ -7,6 +7,7 @@
 #include "mem.h"
 #include "vm.h"
 #include "exec.h"
+#include "debug.h"
 
 // do register lookups, if necessary
 value_t eval(vm_t * vm, value_t v){
@@ -116,10 +117,14 @@ void shutdown_vm(vm_t * vm){
 	free(vm);
 }
 
-int main(){
+
+int main(int argc, char* argv[]){
 	vm_t * vm = init_vm();
 
-	execute(vm,LOG_TRACE);
+	if((argc > 1) && (strcmp(argv[1],"-d") == 0))
+		exec_debug(vm);
+
+	else execute(vm,LOG_TRACE);
 
 	shutdown_vm(vm);
 	return 0;

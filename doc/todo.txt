@@ -1,5 +1,7 @@
 TODO
 
+- write debugger with ncurses GUI to step through code
+
 - Figure out teleporter check algorithm
 	- idea: overwrite inefficient check loop so that it runs faster
 		- First try: set 6027 to be a RET
