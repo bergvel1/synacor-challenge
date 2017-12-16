@@ -337,7 +337,7 @@ void execute(vm_t * vm, int log_flag){
 			const cell * cell_a = Memory_get(mem,++(vm->pc));
 
 			regs[Value_get_register_idx(&(cell_a->value))] = Stack_pop(stk);
-			if(fp) fprintf(fp,"PUSH %" PRIu16 "",eval(vm,cell_a->value));
+			if(fp) fprintf(fp,"POP %" PRIu16 "",eval(vm,cell_a->value));
 		}
 		//4: EQ OP
 		else if(inst == 4){
@@ -626,6 +626,19 @@ void execute(vm_t * vm, int log_flag){
 					fp = NULL;
 				}
 				return;
+			}
+			if(strcmp(vm->stdin_buf,"tele_hack\n") == 0){
+				if(fp){
+					fprintf(fp,"--- modifying teleporter check code in memory ---\n");
+				}
+				//[5483] SET r0 4 --> [5483] SET r0 6
+				cell overwrite_cell1 = {(value_t) 5485,(value_t) 6};
+				Memory_set(mem,5485,&overwrite_cell1);
+
+				//[6027] TJUMP r0 6035 --> [6027] RET
+				cell overwrite_cell2 = {(value_t) 6027,(value_t) 18};
+				Memory_set(mem,6027,&overwrite_cell2);
+
 			}
 			if(vm->stdin_buf[0] == '_'){ 
 				if(strcmp(strtok(vm->stdin_buf," "),"_setreg") == 0){

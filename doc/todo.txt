@@ -1,9 +1,17 @@
 TODO
 
+- Figure out teleporter check algorithm
+	- idea: overwrite inefficient check loop so that it runs faster
+		- First try: set 6027 to be a RET
+		- also need r0 == 6 to get past [5465]
+		- This works! ...but the code is wrong
 
-make VM struct
-	- contains regs, mem, stack, PC
+Interesting locations:
+	[5451]: first "real" check of r7 (outside of initial VM tests)
+	[5489]: first call to looping function
+		- previously set r0 == 4 and r1 == 1
+	[6027]: looping function pt1
+	[6035]: looping function pt2
+	[6048]: looping function pt3
+	[6067]: last return statement? An exit??
 
-make "inst.c"
-	- contains helper functions for each opcode
-		- possibly with a flag for executing vs. logging
