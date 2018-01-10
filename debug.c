@@ -5,6 +5,8 @@
 #include <form.h>
 #include <assert.h>
 #include <inttypes.h>
+#include <pthread.h>
+#include <semaphore.h>
 #include "stack.h"
 #include "value.h"
 #include "mem.h"
@@ -13,6 +15,8 @@
 #include "debug.h"
 
 #define BREAKPOINTS_FILENAME "script/breakpoints"
+#define SEM_NAME1 "/gui_sem1"
+#define SEM_NAME2 "/gui_sem2"
 
 WINDOW * reg_win = NULL;
 WINDOW * stk_win = NULL;
@@ -20,6 +24,9 @@ WINDOW * pc_win = NULL;
 WINDOW * out_win = NULL;
 
 vm_t * vm = NULL;
+
+sem_t *sem1;
+sem_t *sem2;
 
 WINDOW *create_newwin(int height, int width, int starty, int startx);
 void destroy_win(WINDOW *local_win);
@@ -74,6 +81,132 @@ void init_windows(){
     //idlok(out_win,TRUE);
 }
 
+void refresh_windows(){
+    sem_wait(sem2);
+
+    werase(reg_win);
+    box(reg_win, 0 , 0);
+    mvwprintw(reg_win, 1, (getmaxx(reg_win)/2)-5, "Registers");
+    mvwprintw(reg_win, 2, (getmaxx(reg_win)/2)-6, "-----------");
+    for(int i = 0; i < NUM_REGS; i++){
+        mvwprintw(reg_win, 4+(2*i), 4, "r%d -> %" PRIu16 "",i,vm->regs[i]);
+    }
+
+    werase(stk_win);
+    box(stk_win, 0 , 0);
+    mvwprintw(stk_win, 1, (getmaxx(reg_win)/2)-2, "Stack");
+    mvwprintw(stk_win, 2, (getmaxx(reg_win)/2)-5, "-----------");
+    for(int i = 0; i < Stack_size(vm->stk); i++){
+        mvwprintw(stk_win, 4+i, 4, "stk%d -> %" PRIu16 "",i,Stack_peek(vm->stk,i));
+    }
+
+    werase(pc_win);
+    box(pc_win, 0 , 0);
+    mvwprintw(pc_win, 1, (getmaxx(reg_win)/2)-7, "Program Counter");
+    mvwprintw(pc_win, 2, (getmaxx(reg_win)/2)-8, "-----------------");
+    const cell * inst_ptr = Memory_get(vm->mem,vm->pc);
+
+    mvwprintw(pc_win, 4, 4, "%d: %s",vm->pc,"test");
+
+    wrefresh(reg_win);
+    wrefresh(stk_win);
+    wrefresh(pc_win);
+    wrefresh(out_win);
+
+    int sem1_val;
+    if(sem_getvalue(sem1,&sem1_val) < 0){
+        // could not get semaphore value
+        exit(1);
+    }
+    if(sem1_val == 0){
+        sem_post(sem1); // if we are (possibly) waiting to write the VM output, allow the write to happen
+    }
+    else sem_post(sem2);
+}
+
+// update GUI and wait until 'r' key is pressed
+void break_wait(){
+    
+    refresh_windows();
+
+    //werase(pc_win);
+    //box(pc_win, 0 , 0);
+    mvwprintw(pc_win, 1, (getmaxx(reg_win)/2)-7, "Program Counter [PAUSED]");
+    //mvwprintw(pc_win, 2, (getmaxx(reg_win)/2)-8, "-----------------");
+    //mvwprintw(pc_win, 4, 4, "-> %s","test");
+    wrefresh(pc_win);
+
+    // read from input pipe until 'r' is found
+    char c = 'a';
+    while(read(vm->in_fd, &c, 1) > 0){
+        if(c == 'r') break;
+    }
+
+    refresh_windows();
+}
+
+// moved this function here from exec.c for better control over ncurses. May need refactoring.
+void execute_debug(vm_t * vm, FILE * breakpoint_fp, int * breakflag){
+    assert(vm);
+    assert(breakpoint_fp);
+    assert(breakflag);
+
+    char * line = NULL;
+    size_t len = 0;
+    ssize_t read;
+    int breakpoint_count = 0;
+
+    // count number of breakpoints
+    while(!feof(breakpoint_fp)){
+        char ch = fgetc(breakpoint_fp);
+        if(ch == '\n'){
+            breakpoint_count++;
+        }
+    }
+    int * breakpoints = malloc(breakpoint_count*sizeof(int)); // FIX THIS! (currently being malloc'd lots of times)
+    int curr_idx = 0;
+    fseek(breakpoint_fp, 0, SEEK_SET);
+
+    while ((read = getline(&line, &len, breakpoint_fp)) != -1) {
+        breakpoints[curr_idx] = atoi(line);
+        if(line){
+            free(line);
+            line = NULL;
+        } 
+        curr_idx++;
+    }
+    if (line) free(line);
+
+    const cell * inst_ptr = Memory_get(vm->mem,vm->pc);
+    if(!inst_ptr){
+        exit(1);
+    }
+
+    while(inst_ptr){
+        // update GUI when next instruction is INPUT
+        if(inst_ptr->value == 20){
+            //dprintf(vm->out_fd,"\a"); // send special character to tell other process to refresh GUI
+            //refresh_windows();
+        }
+        for(int i = 0; i < breakpoint_count; i++){
+            if(inst_ptr->addr == ((value_t) breakpoints[i])){
+                *breakflag = (*breakflag) ? 0 : 1;
+            }
+        }
+        if(*breakflag){
+            break_wait(); //break;
+            *breakflag = 0;
+        }
+
+        inst_ptr = exec_step(vm,NULL,inst_ptr,breakflag);
+        if(!inst_ptr) *breakflag = -1;
+    }
+
+    free(breakpoints);
+
+    return;
+}
+
 int debugger(vm_t * vm_in){
     vm = vm_in;
 
@@ -102,6 +235,11 @@ int debugger(vm_t * vm_in){
     refresh();
     init_windows();
 
+    sem1 = sem_open(SEM_NAME1, O_CREAT|O_EXCL, 0644, 1);
+    sem2 = sem_open(SEM_NAME2, O_CREAT|O_EXCL, 0644, 0);
+    sem_unlink(SEM_NAME1);
+    sem_unlink(SEM_NAME2);
+
     if ((pid = fork()) < 0){
         /* FATAL: cannot fork child */
         exit(EXIT_FAILURE);
@@ -117,29 +255,7 @@ int debugger(vm_t * vm_in){
 
         FILE * breakpoints_fp = fopen(BREAKPOINTS_FILENAME,"r");
         int breakflag = 0;
-
-        while(breakflag >= 0){
-            execute_debug(vm,breakpoints_fp,&breakflag);
-            if(breakflag == 1){
-                //werase(reg_win);
-                for(int i = 0; i < NUM_REGS; i++){
-                    mvwprintw(reg_win, 4+(2*i), 4, "r%d -> %" PRIu16 "",i,vm->regs[i]);
-                }
-                for(int i = 0; i < Stack_size(vm->stk); i++){
-                    mvwprintw(stk_win, 4+i, 4, "stk%d -> %" PRIu16 "",i,Stack_peek(vm->stk,i));
-                }
-
-                mvwprintw(pc_win, 4, 4, "-> %s","test");
-
-                wrefresh(reg_win);
-                wrefresh(stk_win);
-                wrefresh(pc_win);
-                wrefresh(out_win);
-                //sleep(1);
-                breakflag = 0;
-            }
-            
-        }
+        execute_debug(vm,breakpoints_fp,&breakflag);
 
         close(CHILD_WRITE);
         close(CHILD_READ);
@@ -163,7 +279,7 @@ int debugger(vm_t * vm_in){
             // we are responsible for writing to the VM
             close(PARENT_READ);
             int ch;
-            while((ch = getch()) != KEY_F(1)){
+            while((ch = getch())/* != KEY_F(1)*/){
                 write(PARENT_WRITE,&ch,1);
             }
             close(PARENT_WRITE);
@@ -177,6 +293,8 @@ int debugger(vm_t * vm_in){
             int y_idx = 0;
 
             while (read(PARENT_READ, &buf, 1) > 0){
+                sem_wait(sem1);
+
                 //mvwprintw(out_win,y_idx,2+x_idx,"%c", buf);
                 wprintw(out_win,"%c", buf);
                 wrefresh(out_win);
@@ -191,6 +309,16 @@ int debugger(vm_t * vm_in){
                     x_idx = 0;
                     y_idx--;
                 }
+
+                int sem2_val;
+                if(sem_getvalue(sem2,&sem2_val) < 0){
+                    // could not get semaphore value
+                    exit(1);
+                }
+                if(sem2_val == 0){
+                    sem_post(sem2); // if we are (possibly) waiting to write to the screen, allow the write to happen
+                }
+                else sem_post(sem1);
             }
             close(PARENT_READ);
             endwin();

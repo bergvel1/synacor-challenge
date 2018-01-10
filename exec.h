@@ -6,6 +6,7 @@
 
 void decompile(vm_t * vm);
 void execute(vm_t * vm, int log_flag);
-void execute_debug(vm_t * vm, FILE * breakpoint_fp,int * breakflag);
+const cell * exec_step(vm_t * vm, FILE * fp, const cell * c_ptr, int * breakflag);
+//void execute_debug(vm_t * vm, FILE * breakpoint_fp,int * breakflag);
 
 #endif /* __DBERGV_EXEC__ */

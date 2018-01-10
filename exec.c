@@ -683,6 +683,7 @@ const cell * exec_step(vm_t * vm, FILE * fp, const cell * c_ptr, int * breakflag
 	return c_ptr_ret;
 }
 
+/*
 void execute_debug(vm_t * vm, FILE * breakpoint_fp, int * breakflag){
 	assert(vm);
 	assert(breakpoint_fp);
@@ -735,6 +736,7 @@ void execute_debug(vm_t * vm, FILE * breakpoint_fp, int * breakflag){
 
 	return;
 }
+*/
 
 void execute(vm_t * vm, int log_flag){
 	assert(vm);
