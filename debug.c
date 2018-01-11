@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <sys/mman.h>
+#include <string.h>
 #include "stack.h"
 #include "value.h"
 #include "mem.h"
@@ -83,8 +84,8 @@ void init_windows(){
     height = LINES/2;
     stk_win = newwin(height, width, starty, startx);
     box(stk_win, 0 , 0);
-    mvwprintw(stk_win, 1, (getmaxx(reg_win)/2)-2, "Stack");
-    mvwprintw(stk_win, 2, (getmaxx(reg_win)/2)-5, "-----------");
+    mvwprintw(stk_win, 1, (getmaxx(stk_win)/2)-2, "Stack");
+    mvwprintw(stk_win, 2, (getmaxx(stk_win)/2)-5, "-----------");
     wrefresh(stk_win);
 
     //program counter
@@ -94,8 +95,8 @@ void init_windows(){
     height = LINES/2;
     pc_win = newwin(height, width, starty, startx);
     box(pc_win, 0 , 0);
-    mvwprintw(pc_win, 1, (getmaxx(reg_win)/2)-7, "Program Counter");
-    mvwprintw(pc_win, 2, (getmaxx(reg_win)/2)-8, "-----------------");
+    mvwprintw(pc_win, 1, (getmaxx(pc_win)/2)-7, "Program Counter");
+    mvwprintw(pc_win, 2, (getmaxx(pc_win)/2)-8, "-----------------");
     wrefresh(pc_win);
 
     //output buffer
@@ -118,48 +119,58 @@ void refresh_windows(){
     for(int i = 0; i < NUM_REGS; i++){
         mvwprintw(reg_win, 4+(2*i), 4, "r%d -> %" PRIu16 "",i,vm->regs[i]);
     }
+    wrefresh(reg_win);
 
     werase(stk_win);
     box(stk_win, 0 , 0);
-    mvwprintw(stk_win, 1, (getmaxx(reg_win)/2)-2, "Stack");
-    mvwprintw(stk_win, 2, (getmaxx(reg_win)/2)-5, "-----------");
+    mvwprintw(stk_win, 1, (getmaxx(stk_win)/2)-2, "Stack");
+    mvwprintw(stk_win, 2, (getmaxx(stk_win)/2)-5, "-----------");
     for(int i = 0; i < Stack_size(vm->stk); i++){
         mvwprintw(stk_win, 4+i, 4, "stk%d -> %" PRIu16 "",i,Stack_peek(vm->stk,i));
     }
+    wrefresh(stk_win);
 
     werase(pc_win);
     box(pc_win, 0 , 0);
-    mvwprintw(pc_win, 1, (getmaxx(reg_win)/2)-7, "Program Counter");
-    mvwprintw(pc_win, 2, (getmaxx(reg_win)/2)-8, "-----------------");
+    if(data->debug_input_mode == true){
+        wattrset(pc_win, A_STANDOUT);
+        wattron(pc_win,COLOR_PAIR(1));
+        mvwprintw(pc_win, 1, (getmaxx(pc_win)/2)-16, "[PAUSED] Program Counter [PAUSED]");
+        wattroff(pc_win,COLOR_PAIR(1));
+        wattrset(pc_win, A_NORMAL);
+    } 
+    else mvwprintw(pc_win, 1, (getmaxx(pc_win)/2)-7, "Program Counter");
+    mvwprintw(pc_win, 2, (getmaxx(pc_win)/2)-8, "-----------------");
 
-    char * buf = malloc(256);
+    char * buf = malloc(1024);
+    memset((void*) buf,'\0',1024);
     int i = -6;
     if(vm->pc < 6) i = (-1*vm->pc);
-    int pc_mod = i+vm->pc;
+    int pc_mod;
 
     while(i < 6){
+        pc_mod = i+vm->pc;
         const cell * inst_ptr = Memory_get(vm->mem,pc_mod);
-        if(pc_mod == vm->pc){
+        string_of_cell(vm,inst_ptr,buf,pc_mod);
+        if(i == 0){
             wattrset(pc_win, A_STANDOUT);
-            if(data->debug_input_mode == true){
-                wattron(pc_win,COLOR_PAIR(1));
-                mvwprintw(pc_win, 1, (getmaxx(reg_win)/2)-7, "Program Counter [PAUSED]");
-            } 
-            mvwprintw(pc_win, 10+i, 4, "%d: %s",pc_mod,string_of_cell(vm,inst_ptr,buf,&pc_mod));
+            if(data->debug_input_mode == true) wattron(pc_win,COLOR_PAIR(1));
+
+            if(vm->pc == 0) mvwprintw(pc_win, 10+i, 4, "SHITSHITSHITSHIT");
+            else mvwprintw(pc_win, 10+i, 4, "--- %d: %s ---",pc_mod,buf);
+
             if(data->debug_input_mode == true) wattroff(pc_win,COLOR_PAIR(1));
             wattrset(pc_win, A_NORMAL);
         } 
-
-        else mvwprintw(pc_win, 10+i, 4, "%d: %s",pc_mod,string_of_cell(vm,inst_ptr,buf,&pc_mod));
+        else mvwprintw(pc_win, 10+i, 4, "%d: %s",pc_mod,buf);
         
+        memset((void*) buf,'\0',1024);
         i++;
-        pc_mod++;
     }
     
     free(buf);
 
-    wrefresh(reg_win);
-    wrefresh(stk_win);
+    
     wrefresh(pc_win);
     wrefresh(out_win);
 
@@ -179,11 +190,12 @@ int break_wait(){
     // 's' -> step forward
     // 'q' -> quit
     char c = 'a';
-    int ret = 0;
+    int ret;
     while(read(vm->in_fd, &c, 1) > 0){
         if(c == 'r'){
             pthread_mutex_lock(&data->mutex);
             data->debug_input_mode = false;
+            ret = 0;
             pthread_mutex_unlock(&data->mutex);
             break;
         }
@@ -194,8 +206,8 @@ int break_wait(){
         if(c == 'q'){
             pthread_mutex_lock(&data->mutex);
             data->debug_input_mode = false;
-            pthread_mutex_unlock(&data->mutex);
             ret = -1;
+            pthread_mutex_unlock(&data->mutex);
             break;
         }
     }
@@ -242,13 +254,9 @@ void execute_debug(vm_t * vm, FILE * breakpoint_fp, int * breakflag){
     }
 
     while(inst_ptr){
-        // update GUI when next instruction is INPUT
-        if(inst_ptr->value == 20){
-            refresh_windows();
-        }
         for(int i = 0; i < breakpoint_count; i++){
             if(inst_ptr->addr == ((value_t) breakpoints[i])){
-                *breakflag = (*breakflag) ? 0 : 1;
+                *breakflag = 1;
             }
         }
         if(*breakflag){
@@ -264,7 +272,12 @@ void execute_debug(vm_t * vm, FILE * breakpoint_fp, int * breakflag){
             else *breakflag = 0;
         }
 
-        inst_ptr = exec_step(vm,NULL,inst_ptr,breakflag);
+        // update GUI when next instruction is INPUT
+        if(/*(inst_ptr->value == 19) || */(inst_ptr->value == 20)){
+            refresh_windows();
+        }
+
+        inst_ptr = exec_step(vm,NULL,inst_ptr);
         if(!inst_ptr) *breakflag = -1;
     }
 
@@ -296,9 +309,9 @@ int debugger(vm_t * vm_in){
     initscr();
     start_color();
     cbreak(); 
-    noecho();
     init_color(COLOR_BLACK, 0, 0, 0);
     init_pair(1, COLOR_RED, COLOR_BLACK);
+    noecho();
     keypad(stdscr, TRUE);
     move(LINES-1,0);     
     refresh();
@@ -380,7 +393,6 @@ int debugger(vm_t * vm_in){
                 pthread_mutex_lock(&data->mutex);
                 
                 wmove(out_win,y_idx,x_idx);
-                //wrefresh(out_win);
                 wprintw(out_win,"%c", buf);
                 
                 if(y_idx == (getmaxy(out_win))){
@@ -388,15 +400,18 @@ int debugger(vm_t * vm_in){
                 }
 
                 getyx(out_win,y_idx,x_idx);
-                //wrefresh(out_win);
 
                 if (data->done) {
                     pthread_mutex_unlock(&data->mutex);
                     break;
                 }    
 
+                wrefresh(reg_win);
+                wrefresh(stk_win);
+                wrefresh(pc_win);
+                wrefresh(out_win);
+
                 pthread_mutex_unlock(&data->mutex);
-                refresh_windows();
             }
             close(PARENT_READ);
             endwin();

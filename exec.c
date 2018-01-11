@@ -286,7 +286,7 @@ void decompile(vm_t * vm){
 	vm->pc = tmp;
 }
 
-const cell * exec_step(vm_t * vm, FILE * fp, const cell * c_ptr, int * breakflag){
+const cell * exec_step(vm_t * vm, FILE * fp, const cell * c_ptr){
 	// these can be abbreviated, since we do not expect the pointer locations to change during execution
 	// this cannot be so easily done for VM struct members such as the program counter, since we will have
 	// separate values for the PC in this function and in the VM struct
@@ -615,7 +615,6 @@ const cell * exec_step(vm_t * vm, FILE * fp, const cell * c_ptr, int * breakflag
 							break; // end of line
 					}
 				}
-				if(breakflag) *breakflag = 1;
 			}
 			vm->stdin_idx = 0;
 
@@ -658,7 +657,12 @@ const cell * exec_step(vm_t * vm, FILE * fp, const cell * c_ptr, int * breakflag
 				size_t reg_id = atoi(strtok(NULL," "));
 				value_t val = (value_t) atoi(strtok(NULL,"\n"));
 				regs[reg_id] = val;
-				vm->stdin_idx = vm->stdin_str_len; // trigger new read next time around
+
+				// trigger new read next time around
+				vm->stdin_buf[0] = '\n';
+				vm->stdin_buf[1] = '\0';
+				vm->stdin_str_len = 1;
+				vm->stdin_idx = 0;
 			}
 		}
 		else regs[Value_get_register_idx(&(cell_a->value))] = (value_t) vm->stdin_buf[vm->stdin_idx++];
@@ -699,7 +703,7 @@ void execute(vm_t * vm, int log_flag){
 	}
 
 	while(inst_ptr){
-		inst_ptr = exec_step(vm,fp,inst_ptr,NULL);
+		inst_ptr = exec_step(vm,fp,inst_ptr);
 	}
 	if(fp) fclose(fp);
 

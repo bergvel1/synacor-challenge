@@ -18,11 +18,10 @@ value_t eval(vm_t * vm, value_t v){
 // gives string representation of memory cells (e.g. turns opcodes into legible instructions)
 // assumes buf contains adequate space to store characters
 // updates pc_ptr to the address immediately following the last argument for the given instruction
-char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr){
+char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int pc_mod){
 	assert(vm);
 	assert(inst_ptr);
 	assert(buf);
-	assert(pc_ptr);
 
 	value_t inst = inst_ptr->value;
 
@@ -32,8 +31,8 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//1: SET REGISTER
 	else if(inst == 1){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_b = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_b = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"SET ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -43,7 +42,7 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//2: STACK PUSH
 	else if(inst == 2){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"PUSH ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -51,7 +50,7 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//3: STACK POP
 	else if(inst == 3){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"POP ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -59,9 +58,9 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//4: EQ OP
 	else if(inst == 4){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_b = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_c = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_b = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_c = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"EQ ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -73,9 +72,9 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//5: GT OP
 	else if(inst == 5){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_b = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_c = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_b = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_c = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"GT ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -87,7 +86,7 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//6: JUMP
 	else if(inst == 6){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"JUMP ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -95,8 +94,8 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//7: JUMP IF TRUE
 	else if(inst == 7){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_b = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_b = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"TJUMP ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -106,8 +105,8 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//8: JUMP IF FALSE
 	else if(inst == 8){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_b = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_b = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"FJUMP ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -117,9 +116,9 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//9: ADD
 	else if(inst == 9){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_b = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_c = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_b = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_c = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"ADD ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -131,9 +130,9 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//10: MULT
 	else if(inst == 10){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_b = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_c = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_b = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_c = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"MULT ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -145,9 +144,9 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//11: MOD
 	else if(inst == 11){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_b = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_c = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_b = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_c = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"MOD ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -159,9 +158,9 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//12: AND
 	else if(inst == 12){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_b = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_c = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_b = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_c = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"AND ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -173,9 +172,9 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//13: OR
 	else if(inst == 13){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_b = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_c = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_b = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_c = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"OR ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -187,8 +186,8 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//14: NOT
 	else if(inst == 14){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_b = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_b = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"NOT ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -198,8 +197,8 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//15: READ MEM
 	else if(inst == 15){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_b = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_b = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"RMEM ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -209,8 +208,8 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//16: WRITE MEM
 	else if(inst == 16){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
-		const cell * cell_b = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
+		const cell * cell_b = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"WMEM ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -220,7 +219,7 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//17: CALL
 	else if(inst == 17){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"CALL ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
@@ -232,7 +231,7 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//19: OUTPUT
 	else if(inst == 19){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
 		value_t to_print = cell_a->value;
 
 		sprintf(buf,"OUT ");
@@ -244,7 +243,7 @@ char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr
 	}
 	//20: INPUT
 	else if(inst == 20){
-		const cell * cell_a = Memory_get(vm->mem,++(*pc_ptr));
+		const cell * cell_a = Memory_get(vm->mem,++pc_mod);
 
 		sprintf(buf,"IN ");
 		if(Value_is_reg(&(cell_a->value))) sprintf(buf+strlen(buf),"r%zu ",Value_get_register_idx(&(cell_a->value)));
