@@ -1,8 +1,7 @@
 TODO
 
 - improve GUI
-	- figure out efficient way to display PC and nearby instructions
-	- implement breakpoint and step/continue debug system
+	- fix bug where highlighted current instruction does not stay in the same place
 
 - Figure out teleporter check algorithm
 	- idea: overwrite inefficient check loop so that it runs faster

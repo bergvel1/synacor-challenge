@@ -20,6 +20,7 @@
 // to be used to synchonize writing to the GUI by multiple processes
 typedef struct
 {
+  bool setup; // true when all processes have been sucessfully forked and execution may begin
   bool done;
   bool debug_input_mode; // true when accepting input for the debugger (not the VM)
   pthread_mutex_t mutex;
@@ -46,6 +47,7 @@ void initialise_shared()
     data = mmap(NULL, sizeof(shared_data), prot, flags, -1, 0);
     assert(data);
 
+    data->setup = false;
     data->done = false;
     data->debug_input_mode = false;
 
@@ -97,7 +99,7 @@ void init_windows(){
     wrefresh(pc_win);
 
     //output buffer
-    startx = 0;
+    startx = 1;
     starty = LINES/2;
     width = COLS;
     height = LINES/2;
@@ -164,16 +166,20 @@ void refresh_windows(){
     pthread_mutex_unlock(&data->mutex);
 }
 
-// update GUI and wait until 'r' key is pressed
-void break_wait(){
+// update GUI and enter debug mode
+int break_wait(){
     pthread_mutex_lock(&data->mutex);
     data->debug_input_mode = true;
     pthread_mutex_unlock(&data->mutex);
     
     refresh_windows();
 
-    // read from input pipe until 'r' is found
+    // read debug commands from input pipe
+    // 'r' -> run until next break point or input query
+    // 's' -> step forward
+    // 'q' -> quit
     char c = 'a';
+    int ret = 0;
     while(read(vm->in_fd, &c, 1) > 0){
         if(c == 'r'){
             pthread_mutex_lock(&data->mutex);
@@ -181,9 +187,21 @@ void break_wait(){
             pthread_mutex_unlock(&data->mutex);
             break;
         }
+        if(c == 's'){
+            ret = 1;
+            break;
+        }
+        if(c == 'q'){
+            pthread_mutex_lock(&data->mutex);
+            data->debug_input_mode = false;
+            pthread_mutex_unlock(&data->mutex);
+            ret = -1;
+            break;
+        }
     }
 
     refresh_windows();
+    return ret;
 }
 
 // moved this function here from exec.c for better control over ncurses. May need refactoring.
@@ -204,7 +222,7 @@ void execute_debug(vm_t * vm, FILE * breakpoint_fp, int * breakflag){
             breakpoint_count++;
         }
     }
-    int * breakpoints = malloc(breakpoint_count*sizeof(int)); // FIX THIS! (currently being malloc'd lots of times)
+    int * breakpoints = malloc(breakpoint_count*sizeof(int));
     int curr_idx = 0;
     fseek(breakpoint_fp, 0, SEEK_SET);
 
@@ -234,8 +252,16 @@ void execute_debug(vm_t * vm, FILE * breakpoint_fp, int * breakflag){
             }
         }
         if(*breakflag){
-            break_wait(); //break;
-            *breakflag = 0;
+            int debug_op = break_wait();
+            if(debug_op < 0){ // exit debugger from debug mode
+                inst_ptr = NULL;
+                *breakflag = -1;
+                break;
+            }
+            else if(debug_op == 1){
+                // step forward by one, remaining in debug mode
+            }
+            else *breakflag = 0;
         }
 
         inst_ptr = exec_step(vm,NULL,inst_ptr,breakflag);
@@ -294,6 +320,14 @@ int debugger(vm_t * vm_in){
 
         FILE * breakpoints_fp = fopen(BREAKPOINTS_FILENAME,"r");
         int breakflag = 0;
+
+        bool setup_check = false;
+        while(!setup_check){
+            pthread_mutex_lock(&data->mutex);
+            setup_check = data->setup;
+            pthread_mutex_unlock(&data->mutex);
+        }
+
         execute_debug(vm,breakpoints_fp,&breakflag);
 
         pthread_mutex_lock(&data->mutex);
@@ -338,23 +372,23 @@ int debugger(vm_t * vm_in){
             int x_idx = 0;
             int y_idx = 0;
 
+            pthread_mutex_lock(&data->mutex);
+            data->setup = true;
+            pthread_mutex_unlock(&data->mutex);
+
             while (read(PARENT_READ, &buf, 1) > 0){
                 pthread_mutex_lock(&data->mutex);
                 
-                //mvwprintw(out_win,y_idx,2+x_idx,"%c", buf);
+                wmove(out_win,y_idx,x_idx);
+                //wrefresh(out_win);
                 wprintw(out_win,"%c", buf);
-                wrefresh(out_win);
-                x_idx++;
-                if(buf == '\n'){
-                    x_idx = 0;
-                    y_idx++;
-                }
+                
                 if(y_idx == (getmaxy(out_win))){
                     scroll(out_win);
-                    wrefresh(out_win);
-                    x_idx = 0;
-                    y_idx--;
                 }
+
+                getyx(out_win,y_idx,x_idx);
+                //wrefresh(out_win);
 
                 if (data->done) {
                     pthread_mutex_unlock(&data->mutex);
@@ -362,6 +396,7 @@ int debugger(vm_t * vm_in){
                 }    
 
                 pthread_mutex_unlock(&data->mutex);
+                refresh_windows();
             }
             close(PARENT_READ);
             endwin();

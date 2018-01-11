@@ -683,60 +683,6 @@ const cell * exec_step(vm_t * vm, FILE * fp, const cell * c_ptr, int * breakflag
 	return c_ptr_ret;
 }
 
-/*
-void execute_debug(vm_t * vm, FILE * breakpoint_fp, int * breakflag){
-	assert(vm);
-	assert(breakpoint_fp);
-	assert(breakflag);
-
-	char * line = NULL;
-    size_t len = 0;
-    ssize_t read;
-    int breakpoint_count = 0;
-
-    // count number of breakpoints
-    while(!feof(breakpoint_fp)){
-  		char ch = fgetc(breakpoint_fp);
-  		if(ch == '\n'){
-			breakpoint_count++;
-		}
-	}
-	int * breakpoints = malloc(breakpoint_count*sizeof(int)); // FIX THIS! (currently being malloc'd lots of times)
-	int curr_idx = 0;
-	fseek(breakpoint_fp, 0, SEEK_SET);
-
-    while ((read = getline(&line, &len, breakpoint_fp)) != -1) {
-    	breakpoints[curr_idx] = atoi(line);
-    	if(line){
-    		free(line);
-    		line = NULL;
-    	} 
-    	curr_idx++;
-    }
-    if (line) free(line);
-
-	const cell * inst_ptr = Memory_get(vm->mem,vm->pc);
-	if(!inst_ptr){
-		exit(1);
-	}
-
-	while(inst_ptr){
-		for(int i = 0; i < breakpoint_count; i++){
-			if(inst_ptr->addr == ((value_t) breakpoints[i])){
-				*breakflag = (*breakflag) ? 0 : 1;
-			}
-		}
-		if(*breakflag) break;
-
-		inst_ptr = exec_step(vm,NULL,inst_ptr,breakflag);
-		if(!inst_ptr) *breakflag = -1;
-	}
-
-	free(breakpoints);
-
-	return;
-}
-*/
 
 void execute(vm_t * vm, int log_flag){
 	assert(vm);
