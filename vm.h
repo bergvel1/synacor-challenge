@@ -31,7 +31,7 @@ typedef struct vm_s {
 	FILE * in_fp;
 } vm_t;
 
-char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int pc_mod);
+char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr);
 
 void state_dump(vm_t * vm);
 

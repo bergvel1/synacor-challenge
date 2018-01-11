@@ -144,28 +144,28 @@ void refresh_windows(){
 
     char * buf = malloc(1024);
     memset((void*) buf,'\0',1024);
-    int i = -6;
-    if(vm->pc < 6) i = (-1*vm->pc);
-    int pc_mod;
+    int i = -8;
+    if(vm->pc < 8) i = (-1*vm->pc);
+    int pc_mod = i+vm->pc;
 
-    while(i < 6){
-        pc_mod = i+vm->pc;
+    while(i < 8){
         const cell * inst_ptr = Memory_get(vm->mem,pc_mod);
-        string_of_cell(vm,inst_ptr,buf,pc_mod);
-        if(i == 0){
+        int start_addr = pc_mod;
+        string_of_cell(vm,inst_ptr,buf,&pc_mod);
+        if(start_addr == vm->pc){
             wattrset(pc_win, A_STANDOUT);
             if(data->debug_input_mode == true) wattron(pc_win,COLOR_PAIR(1));
 
-            if(vm->pc == 0) mvwprintw(pc_win, 10+i, 4, "SHITSHITSHITSHIT");
-            else mvwprintw(pc_win, 10+i, 4, "--- %d: %s ---",pc_mod,buf);
+            mvwprintw(pc_win, 11+i, 4, "--- %d: %s ---",start_addr,buf);
 
             if(data->debug_input_mode == true) wattroff(pc_win,COLOR_PAIR(1));
             wattrset(pc_win, A_NORMAL);
         } 
-        else mvwprintw(pc_win, 10+i, 4, "%d: %s",pc_mod,buf);
+        else mvwprintw(pc_win, 11+i, 4, "%d: %s",start_addr,buf);
         
         memset((void*) buf,'\0',1024);
         i++;
+        pc_mod++;
     }
     
     free(buf);
