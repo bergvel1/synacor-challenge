@@ -6,7 +6,7 @@
 #include <assert.h>
 #include <inttypes.h>
 #include <pthread.h>
-#include <semaphore.h>
+#include <sys/mman.h>
 #include "stack.h"
 #include "value.h"
 #include "mem.h"
@@ -15,8 +15,17 @@
 #include "debug.h"
 
 #define BREAKPOINTS_FILENAME "script/breakpoints"
-#define SEM_NAME1 "/gui_sem1"
-#define SEM_NAME2 "/gui_sem2"
+
+// from https://stackoverflow.com/questions/19172541/procs-fork-and-mutexes
+// to be used to synchonize writing to the GUI by multiple processes
+typedef struct
+{
+  bool done;
+  bool debug_input_mode; // true when accepting input for the debugger (not the VM)
+  pthread_mutex_t mutex;
+} shared_data;
+
+static shared_data* data = NULL;
 
 WINDOW * reg_win = NULL;
 WINDOW * stk_win = NULL;
@@ -25,11 +34,27 @@ WINDOW * out_win = NULL;
 
 vm_t * vm = NULL;
 
-sem_t *sem1;
-sem_t *sem2;
-
 WINDOW *create_newwin(int height, int width, int starty, int startx);
 void destroy_win(WINDOW *local_win);
+
+// from https://stackoverflow.com/questions/19172541/procs-fork-and-mutexes 
+void initialise_shared()
+{
+    // place our shared data in shared memory
+    int prot = PROT_READ | PROT_WRITE;
+    int flags = MAP_SHARED | MAP_ANONYMOUS;
+    data = mmap(NULL, sizeof(shared_data), prot, flags, -1, 0);
+    assert(data);
+
+    data->done = false;
+    data->debug_input_mode = false;
+
+    // initialise mutex so it works properly in shared memory
+    pthread_mutexattr_t attr;
+    pthread_mutexattr_init(&attr);
+    pthread_mutexattr_setpshared(&attr, PTHREAD_PROCESS_SHARED);
+    pthread_mutex_init(&data->mutex, &attr);
+}
 
 void init_windows(){
     assert(vm);
@@ -82,7 +107,7 @@ void init_windows(){
 }
 
 void refresh_windows(){
-    sem_wait(sem2);
+    pthread_mutex_lock(&data->mutex);
 
     werase(reg_win);
     box(reg_win, 0 , 0);
@@ -104,42 +129,58 @@ void refresh_windows(){
     box(pc_win, 0 , 0);
     mvwprintw(pc_win, 1, (getmaxx(reg_win)/2)-7, "Program Counter");
     mvwprintw(pc_win, 2, (getmaxx(reg_win)/2)-8, "-----------------");
-    const cell * inst_ptr = Memory_get(vm->mem,vm->pc);
 
-    mvwprintw(pc_win, 4, 4, "%d: %s",vm->pc,"test");
+    char * buf = malloc(256);
+    int i = -6;
+    if(vm->pc < 6) i = (-1*vm->pc);
+    int pc_mod = i+vm->pc;
+
+    while(i < 6){
+        const cell * inst_ptr = Memory_get(vm->mem,pc_mod);
+        if(pc_mod == vm->pc){
+            wattrset(pc_win, A_STANDOUT);
+            if(data->debug_input_mode == true){
+                wattron(pc_win,COLOR_PAIR(1));
+                mvwprintw(pc_win, 1, (getmaxx(reg_win)/2)-7, "Program Counter [PAUSED]");
+            } 
+            mvwprintw(pc_win, 10+i, 4, "%d: %s",pc_mod,string_of_cell(vm,inst_ptr,buf,&pc_mod));
+            if(data->debug_input_mode == true) wattroff(pc_win,COLOR_PAIR(1));
+            wattrset(pc_win, A_NORMAL);
+        } 
+
+        else mvwprintw(pc_win, 10+i, 4, "%d: %s",pc_mod,string_of_cell(vm,inst_ptr,buf,&pc_mod));
+        
+        i++;
+        pc_mod++;
+    }
+    
+    free(buf);
 
     wrefresh(reg_win);
     wrefresh(stk_win);
     wrefresh(pc_win);
     wrefresh(out_win);
 
-    int sem1_val;
-    if(sem_getvalue(sem1,&sem1_val) < 0){
-        // could not get semaphore value
-        exit(1);
-    }
-    if(sem1_val == 0){
-        sem_post(sem1); // if we are (possibly) waiting to write the VM output, allow the write to happen
-    }
-    else sem_post(sem2);
+    pthread_mutex_unlock(&data->mutex);
 }
 
 // update GUI and wait until 'r' key is pressed
 void break_wait(){
+    pthread_mutex_lock(&data->mutex);
+    data->debug_input_mode = true;
+    pthread_mutex_unlock(&data->mutex);
     
     refresh_windows();
-
-    //werase(pc_win);
-    //box(pc_win, 0 , 0);
-    mvwprintw(pc_win, 1, (getmaxx(reg_win)/2)-7, "Program Counter [PAUSED]");
-    //mvwprintw(pc_win, 2, (getmaxx(reg_win)/2)-8, "-----------------");
-    //mvwprintw(pc_win, 4, 4, "-> %s","test");
-    wrefresh(pc_win);
 
     // read from input pipe until 'r' is found
     char c = 'a';
     while(read(vm->in_fd, &c, 1) > 0){
-        if(c == 'r') break;
+        if(c == 'r'){
+            pthread_mutex_lock(&data->mutex);
+            data->debug_input_mode = false;
+            pthread_mutex_unlock(&data->mutex);
+            break;
+        }
     }
 
     refresh_windows();
@@ -185,8 +226,7 @@ void execute_debug(vm_t * vm, FILE * breakpoint_fp, int * breakflag){
     while(inst_ptr){
         // update GUI when next instruction is INPUT
         if(inst_ptr->value == 20){
-            //dprintf(vm->out_fd,"\a"); // send special character to tell other process to refresh GUI
-            //refresh_windows();
+            refresh_windows();
         }
         for(int i = 0; i < breakpoint_count; i++){
             if(inst_ptr->addr == ((value_t) breakpoints[i])){
@@ -228,17 +268,16 @@ int debugger(vm_t * vm_in){
 
     // set up ncurses windows
     initscr();
+    start_color();
     cbreak(); 
-    //noecho();
+    noecho();
+    init_color(COLOR_BLACK, 0, 0, 0);
+    init_pair(1, COLOR_RED, COLOR_BLACK);
     keypad(stdscr, TRUE);
     move(LINES-1,0);     
     refresh();
     init_windows();
-
-    sem1 = sem_open(SEM_NAME1, O_CREAT|O_EXCL, 0644, 1);
-    sem2 = sem_open(SEM_NAME2, O_CREAT|O_EXCL, 0644, 0);
-    sem_unlink(SEM_NAME1);
-    sem_unlink(SEM_NAME2);
+    initialise_shared();
 
     if ((pid = fork()) < 0){
         /* FATAL: cannot fork child */
@@ -257,11 +296,15 @@ int debugger(vm_t * vm_in){
         int breakflag = 0;
         execute_debug(vm,breakpoints_fp,&breakflag);
 
+        pthread_mutex_lock(&data->mutex);
+        data->done = true;
+        pthread_mutex_unlock(&data->mutex);
+
         close(CHILD_WRITE);
         close(CHILD_READ);
         fclose(breakpoints_fp);
 
-        exit(0);
+        //exit(0);
     }
     else{
         close(CHILD_READ);
@@ -279,8 +322,11 @@ int debugger(vm_t * vm_in){
             // we are responsible for writing to the VM
             close(PARENT_READ);
             int ch;
-            while((ch = getch())/* != KEY_F(1)*/){
+            while((ch = getch())){
+                pthread_mutex_lock(&data->mutex);
                 write(PARENT_WRITE,&ch,1);
+                if(!data->debug_input_mode) addch((char) ch); // echo typed characters only when not in debug mode
+                pthread_mutex_unlock(&data->mutex);
             }
             close(PARENT_WRITE);
         }
@@ -293,8 +339,8 @@ int debugger(vm_t * vm_in){
             int y_idx = 0;
 
             while (read(PARENT_READ, &buf, 1) > 0){
-                sem_wait(sem1);
-
+                pthread_mutex_lock(&data->mutex);
+                
                 //mvwprintw(out_win,y_idx,2+x_idx,"%c", buf);
                 wprintw(out_win,"%c", buf);
                 wrefresh(out_win);
@@ -310,15 +356,12 @@ int debugger(vm_t * vm_in){
                     y_idx--;
                 }
 
-                int sem2_val;
-                if(sem_getvalue(sem2,&sem2_val) < 0){
-                    // could not get semaphore value
-                    exit(1);
-                }
-                if(sem2_val == 0){
-                    sem_post(sem2); // if we are (possibly) waiting to write to the screen, allow the write to happen
-                }
-                else sem_post(sem1);
+                if (data->done) {
+                    pthread_mutex_unlock(&data->mutex);
+                    break;
+                }    
+
+                pthread_mutex_unlock(&data->mutex);
             }
             close(PARENT_READ);
             endwin();
@@ -328,5 +371,6 @@ int debugger(vm_t * vm_in){
         //endwin(); // not sure if calling this twice (once for each child) is problematic
     }
 
+    munmap(data, sizeof(data));
     return 0;
 }
