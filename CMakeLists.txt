@@ -11,7 +11,7 @@ set(THREADS_PREFER_PTHREAD_FLAG ON)
 find_package(Threads REQUIRED)
 
 file(GLOB SOURCES "src/*.c")
-file(GLOB HEADERS "src/*.c")
+file(GLOB HEADERS "include/*.h")
 
 add_executable(synacor_run ${SOURCES})
 target_link_libraries(synacor_run Threads::Threads ${CURSES_LIBRARIES} form)

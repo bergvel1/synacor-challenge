@@ -4,7 +4,6 @@
 #define NO_LOG 0
 #define LOG_TRACE 1
 
-void decompile(vm_t * vm);
 void execute(vm_t * vm, int log_flag);
 const cell * exec_step(vm_t * vm, FILE * fp, const cell * c_ptr);
 //void execute_debug(vm_t * vm, FILE * breakpoint_fp,int * breakflag);

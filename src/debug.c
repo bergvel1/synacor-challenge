@@ -13,6 +13,7 @@
 #include "../include/mem.h"
 #include "../include/vm.h"
 #include "../include/exec.h"
+#include "../include/logging.h"
 #include "../include/debug.h"
 
 #define BREAKPOINTS_FILENAME "../script/breakpoints"

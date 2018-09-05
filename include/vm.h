@@ -1,6 +1,11 @@
 #ifndef __DBERGV_VM__
 #define __DBERGV_VM__
 
+#include <stdio.h>
+#include "../include/stack.h"
+#include "../include/value.h"
+#include "../include/mem.h"
+
 #define NUM_REGS (8)
 #define INPUT_FILENAME ("../data/challenge.bin")
 #define TRACE_FILENAME ("../log/trace.log")
@@ -30,12 +35,6 @@ typedef struct vm_s {
 	FILE * out_fp;
 	FILE * in_fp;
 } vm_t;
-
-char * string_of_cell(vm_t * vm, const cell * inst_ptr, char * buf, int * pc_ptr);
-
-void state_dump(vm_t * vm);
-
-void state_dump_full(vm_t * vm);
 
 value_t eval(vm_t * vm, value_t v);
 
