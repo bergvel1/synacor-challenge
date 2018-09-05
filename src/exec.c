@@ -3,11 +3,11 @@
 #include <string.h>
 #include <inttypes.h>
 #include <unistd.h>
-#include "stack.h"
-#include "value.h"
-#include "mem.h"
-#include "vm.h"
-#include "exec.h"
+#include "../include/stack.h"
+#include "../include/value.h"
+#include "../include/mem.h"
+#include "../include/vm.h"
+#include "../include/exec.h"
 
 void decompile(vm_t * vm){
 	assert(vm);
@@ -644,12 +644,28 @@ const cell * exec_step(vm_t * vm, FILE * fp, const cell * c_ptr){
 				fprintf(fp,"--- modifying teleporter check code in memory ---\n");
 			}
 			//[5483] SET r0 4 --> [5483] SET r0 6
-			cell overwrite_cell1 = {(value_t) 5485,(value_t) 6};
-			Memory_set(mem,5485,&overwrite_cell1);
+			//cell overwrite_cell1 = {(value_t) 5485,(value_t) 4};
+			//Memory_set(mem,5485,&overwrite_cell1);
 
-			//[6027] TJUMP r0 6035 --> [6027] RET
-			cell overwrite_cell2 = {(value_t) 6027,(value_t) 18};
-			Memory_set(mem,6027,&overwrite_cell2);
+			//[5489] CALL 6027 --> [5489] JUMP 5478
+			//cell overwrite_cell2 = {(value_t) 5489,(value_t) 6};
+			//Memory_set(mem,5489,&overwrite_cell2);
+			//cell overwrite_cell3 = {(value_t) 5490,(value_t) 5478};
+			//Memory_set(mem,5490,&overwrite_cell3);
+
+			//[5478] NOOP--> [5478] SET r0 6
+			cell overwrite_cell4 = {(value_t) 5478,(value_t) 1};
+			Memory_set(mem,5478,&overwrite_cell4);
+			cell overwrite_cell5 = {(value_t) 5479,(value_t) 32768};
+			Memory_set(mem,5479,&overwrite_cell5);
+			cell overwrite_cell6 = {(value_t) 5480,(value_t) 6};
+			Memory_set(mem,5480,&overwrite_cell6);
+
+			//[5481] NOOP --> [5481] JUMP 5491
+			cell overwrite_cell7 = {(value_t) 5481,(value_t) 6};
+			Memory_set(mem,5481,&overwrite_cell7);
+			cell overwrite_cell8 = {(value_t) 5482,(value_t) 5491};
+			Memory_set(mem,5482,&overwrite_cell8);
 
 		}
 		if(vm->stdin_buf[0] == '_'){ 

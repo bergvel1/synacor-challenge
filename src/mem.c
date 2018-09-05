@@ -1,5 +1,5 @@
-#include "mem.h"
-#include "value.h"
+#include "../include/mem.h"
+#include "../include/value.h"
 
 #include <assert.h>
 #include <string.h>

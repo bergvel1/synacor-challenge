@@ -1,5 +1,5 @@
-#include "stack.h"
-#include "value.h"
+#include "../include/stack.h"
+#include "../include/value.h"
 #include <assert.h>
 
 

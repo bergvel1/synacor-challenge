@@ -8,14 +8,14 @@
 #include <pthread.h>
 #include <sys/mman.h>
 #include <string.h>
-#include "stack.h"
-#include "value.h"
-#include "mem.h"
-#include "vm.h"
-#include "exec.h"
-#include "debug.h"
+#include "../include/stack.h"
+#include "../include/value.h"
+#include "../include/mem.h"
+#include "../include/vm.h"
+#include "../include/exec.h"
+#include "../include/debug.h"
 
-#define BREAKPOINTS_FILENAME "script/breakpoints"
+#define BREAKPOINTS_FILENAME "../   script/breakpoints"
 
 // from https://stackoverflow.com/questions/19172541/procs-fork-and-mutexes
 // to be used to synchonize writing to the GUI by multiple processes
@@ -73,7 +73,7 @@ void init_windows(){
     mvwprintw(reg_win, 1, (getmaxx(reg_win)/2)-5, "Registers");
     mvwprintw(reg_win, 2, (getmaxx(reg_win)/2)-6, "-----------");
     for(int i = 0; i < NUM_REGS; i++){
-        mvwprintw(reg_win, 4+(2*i), 4, "r%d -> %" PRIu16 "",i,vm->regs[i]);
+        mvwprintw(reg_win, 3+(2*i), 4, "r%d -> %" PRIu16 "",i,vm->regs[i]);
     }
     wrefresh(reg_win);
 
@@ -102,7 +102,7 @@ void init_windows(){
     //output buffer
     startx = 1;
     starty = LINES/2;
-    width = COLS;
+    width = COLS-1;
     height = LINES/2;
     out_win = newwin(height, width, starty, startx);
     scrollok(out_win,TRUE);
@@ -117,17 +117,17 @@ void refresh_windows(){
     mvwprintw(reg_win, 1, (getmaxx(reg_win)/2)-5, "Registers");
     mvwprintw(reg_win, 2, (getmaxx(reg_win)/2)-6, "-----------");
     for(int i = 0; i < NUM_REGS; i++){
-        mvwprintw(reg_win, 4+(2*i), 4, "r%d -> %" PRIu16 "",i,vm->regs[i]);
+        mvwprintw(reg_win, 3+(2*i), 4, "r%d -> %" PRIu16 "",i,vm->regs[i]);
     }
     wrefresh(reg_win);
 
     werase(stk_win);
-    box(stk_win, 0 , 0);
     mvwprintw(stk_win, 1, (getmaxx(stk_win)/2)-2, "Stack");
     mvwprintw(stk_win, 2, (getmaxx(stk_win)/2)-5, "-----------");
     for(int i = 0; i < Stack_size(vm->stk); i++){
-        mvwprintw(stk_win, 4+i, 4, "stk%d -> %" PRIu16 "",i,Stack_peek(vm->stk,i));
+        mvwprintw(stk_win, 3+i, 4, "stk%d -> %" PRIu16 "",i,Stack_peek(vm->stk,i));
     }
+    box(stk_win, 0 , 0);
     wrefresh(stk_win);
 
     werase(pc_win);

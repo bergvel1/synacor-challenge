@@ -2,12 +2,12 @@
 #include <stdio.h>
 #include <string.h>
 #include <inttypes.h>
-#include "stack.h"
-#include "value.h"
-#include "mem.h"
-#include "vm.h"
-#include "exec.h"
-#include "debug.h"
+#include "../include/stack.h"
+#include "../include/value.h"
+#include "../include/mem.h"
+#include "../include/vm.h"
+#include "../include/exec.h"
+#include "../include/debug.h"
 
 // do register lookups, if necessary
 value_t eval(vm_t * vm, value_t v){
