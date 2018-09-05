@@ -4,7 +4,7 @@
 
 
 Stack * Stack_create(){
-	Stack * stk = malloc(sizeof(Stack));
+	Stack * stk = (Stack *) malloc(sizeof(Stack));
 	stk->head = NULL;
 	stk->num_elements = 0;
 
@@ -20,7 +20,7 @@ size_t Stack_size(Stack * stk){
 void Stack_push(Stack * stk, value_t val){
 	assert(stk);
 
-	node_t * n = malloc(sizeof(node_t));
+	node_t * n = (node_t *) malloc(sizeof(node_t));
 	assert(n);
 
 	n->val = val;
