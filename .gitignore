@@ -81,3 +81,6 @@ fabric.properties
 
 # Editor-based Rest Client
 .idea/httpRequests
+
+# Google Test library
+synacor_tests/lib/googletest-release-1.8.1/*

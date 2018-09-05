@@ -15,7 +15,7 @@
 #include "../include/exec.h"
 #include "../include/debug.h"
 
-#define BREAKPOINTS_FILENAME "../   script/breakpoints"
+#define BREAKPOINTS_FILENAME "../script/breakpoints"
 
 // from https://stackoverflow.com/questions/19172541/procs-fork-and-mutexes
 // to be used to synchonize writing to the GUI by multiple processes

@@ -12,13 +12,13 @@
 
 Memory *Memory_create() {
 
-  Memory * ret = malloc(sizeof(Memory));
+  Memory * ret = (Memory *) malloc(sizeof(Memory));
   if(!ret){
     fprintf(stderr, "Malloc failed!\n");
     exit(1);
   }
 
-  ret->array = malloc(INITIAL_CAPACITY*sizeof(cell*)); 
+  ret->array = (cell **) malloc(INITIAL_CAPACITY*sizeof(cell*));
   ret->size = 0;
   ret->capacity = INITIAL_CAPACITY;
   
@@ -42,7 +42,7 @@ size_t Memory_size(Memory *memory) {
 
 void Memory_resize(Memory *memory, size_t new_size) {
   assert(memory);
-  assert(new_size > 0);
+  assert(new_size >= 0);
   assert(new_size < MAX_SIZE);
 
   // CASE ONE: Same size
@@ -71,18 +71,18 @@ void Memory_resize(Memory *memory, size_t new_size) {
   // CASE FOUR: New size greater than old size and old capacity
   else if(new_size > old_capacity){
     size_t new_capacity = max(old_capacity * 2, new_size);
-    cell ** new = malloc(new_capacity * sizeof(cell*)); //allocate new array
-    if(!new){
+    cell ** newC = (cell **) malloc(new_capacity * sizeof(cell*)); //allocate newC array
+    if(!newC){
       fprintf(stderr, "Malloc failed!\n");
       exit(1);
     }
     size_t i;
-    for(i = memory->size; i < new_size; i++) new[i] = NULL; // NULL padding
-    for(i = 0; i < memory->size; i++) new[i] = (memory->array)[i]; // copy pointers to data
+    for(i = memory->size; i < new_size; i++) newC[i] = NULL; // NULL padding
+    for(i = 0; i < memory->size; i++) newC[i] = (memory->array)[i]; // copy pointers to data
     free(memory->array);    
     memory->capacity = new_capacity;
     memory->size = new_size;
-    memory->array = new;
+    memory->array = newC;
     return;
   }
 }
@@ -100,7 +100,7 @@ void Memory_set(Memory *memory, size_t index, const cell *c) {
     return;
   }
 
-  (memory->array)[index] = malloc(sizeof(cell));
+  (memory->array)[index] = (cell *) malloc(sizeof(cell));
   *((memory->array)[index]) = *c;
   //strcpy((memory->array)[index],str);
   return;
@@ -129,7 +129,7 @@ void Memory_insert(Memory *memory, size_t index, const cell *c) {
   if(resizeTo == (index+1)){
     if(!c) (memory->array)[index] = NULL;
     else {
-      (memory->array)[index] = malloc(sizeof(cell));
+      (memory->array)[index] = (cell *) malloc(sizeof(cell));
        *((memory->array)[index]) = *c;
       //strcpy((memory->array)[index],str); // if index is being inserted at index >= size, no shifting should need to take place
     }
@@ -143,7 +143,7 @@ void Memory_insert(Memory *memory, size_t index, const cell *c) {
     (memory->array)[index] = NULL;
   }
   else{
-    (memory->array)[index] = malloc(sizeof(cell));
+    (memory->array)[index] = (cell *) malloc(sizeof(cell));
      *((memory->array)[index]) = *c;
   }
 
@@ -192,7 +192,7 @@ void Memory_append(Memory *memory, const cell *c) {
       (memory->array)[(memory->size)-1] = NULL;
     }
   else{
-    (memory->array)[(memory->size)-1] = malloc(sizeof(cell));
+    (memory->array)[(memory->size)-1] = (cell *) malloc(sizeof(cell));
      *((memory->array)[memory->size-1]) = *c;
   }
   return;
